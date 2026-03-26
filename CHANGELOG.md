@@ -4,6 +4,18 @@ All notable changes to this project will be documented in this file.
 
 The format is inspired by Keep a Changelog, and version tags follow the repository release flow.
 
+## [Unreleased]
+
+### Added
+
+- README preview asset for the GitHub homepage
+- Detailed release validation notes in English and Chinese
+
+### Changed
+
+- Local git author configuration now uses the GitHub noreply email for contributor attribution
+- README now highlights pre-release installation checks and live-link validation
+
 ## [2.3.0-beta.1] - 2026-03-26
 
 Initial public beta release.

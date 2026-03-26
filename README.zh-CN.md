@@ -9,6 +9,8 @@
 
 `openclaw-content-processor` 是一个 OpenClaw skill，也是一个可独立运行的命令行工具。它会接收一个或多个分享链接，按来源类型自动抓取、清洗、归纳，并输出本地 `report.md + report.json`。
 
+![报告预览](./assets/report-preview.svg)
+
 适合处理的来源包括：
 
 - GitHub 仓库
@@ -43,6 +45,15 @@
 | X/Twitter | 条件可用 | 公开视频常可处理，但质量受转写影响 |
 | 微博 | 条件可用 | 极短视频可能退化为 `metadata-only partial` |
 | 抖音 / YouTube | 已实现 | 建议用真实业务链接继续验证 |
+
+## 发布前验证
+
+在切 `v2.3.0` 正式版前，这个仓库按两层方式做验证：
+
+- 安装验证：`bash scripts/bootstrap.sh --install-python`、`bash scripts/bootstrap.sh`、`.venv/bin/python -m py_compile ...`、`.venv/bin/python -m unittest discover -s tests -v`
+- 真实链接验证：`2026-03-26` 已对 GitHub、知乎、CSDN、头条、Bilibili、微信公众号、小红书、X/Twitter、微博做过公开样本回归
+
+详细结果、命令和平台备注见 [docs/release-validation.zh-CN.md](./docs/release-validation.zh-CN.md)。
 
 ## 功能概览
 
@@ -208,6 +219,11 @@ CLI 结束时会输出一个 JSON 概览，例如：
 
 ```text
 .
+├── assets/
+│   └── report-preview.svg
+├── docs/
+│   ├── release-validation.md
+│   └── release-validation.zh-CN.md
 ├── README.md
 ├── README.zh-CN.md
 ├── CHANGELOG.md

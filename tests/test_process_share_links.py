@@ -135,7 +135,7 @@ class ContentProcessorTests(unittest.TestCase):
             "content": "这里是正文。",
             "source_metadata": {},
         }
-        with mock.patch.dict("os.environ", {}, clear=False):
+        with mock.patch.dict("os.environ", {"OPENAI_API_KEY": ""}, clear=False):
             enriched = MODULE.enrich_item_analysis(item, MODULE.AnalysisOptions(mode="auto", model="gpt-5-mini", timeout=5))
         self.assertEqual(enriched["analysis_method"], "local heuristic")
         self.assertIn("核心价值：", enriched["analysis"])

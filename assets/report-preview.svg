@@ -1,0 +1,44 @@
+<svg width="1280" height="860" viewBox="0 0 1280 860" fill="none" xmlns="http://www.w3.org/2000/svg">
+  <rect width="1280" height="860" rx="32" fill="#F4EFE6"/>
+  <rect x="48" y="48" width="1184" height="764" rx="28" fill="#FFFDF9" stroke="#D8CCBA" stroke-width="2"/>
+  <rect x="48" y="48" width="1184" height="70" rx="28" fill="#183A37"/>
+  <rect x="48" y="90" width="1184" height="28" fill="#183A37"/>
+  <circle cx="92" cy="83" r="10" fill="#F2A65A"/>
+  <circle cx="124" cy="83" r="10" fill="#E76F51"/>
+  <circle cx="156" cy="83" r="10" fill="#86BBD8"/>
+  <text x="592" y="90" fill="#F9F6EF" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="24" text-anchor="middle">report.md</text>
+
+  <rect x="86" y="154" width="320" height="250" rx="20" fill="#F7F1E6"/>
+  <text x="112" y="198" fill="#183A37" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="700">Run Summary</text>
+  <text x="112" y="238" fill="#2A2A2A" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">status       success</text>
+  <text x="112" y="270" fill="#2A2A2A" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">links        4</text>
+  <text x="112" y="302" fill="#2A2A2A" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">success      3</text>
+  <text x="112" y="334" fill="#2A2A2A" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">partial      1</text>
+  <text x="112" y="366" fill="#2A2A2A" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">output       ~/Desktop/内容摘要/...</text>
+
+  <rect x="434" y="154" width="744" height="250" rx="20" fill="#183A37"/>
+  <text x="466" y="198" fill="#F9F6EF" font-family="Inter, Segoe UI, sans-serif" font-size="18" font-weight="700">What The Report Looks Like</text>
+  <text x="466" y="244" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18"># Release Readiness Digest</text>
+  <text x="466" y="278" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- generated_at: 2026-03-26 10:20</text>
+  <text x="466" y="312" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- extractors: github api + readme / Scrapling / yt-dlp / whisper-cli</text>
+  <text x="466" y="346" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- outputs: report.md, report.json, items/*.json</text>
+  <text x="466" y="380" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- note: short social clips may become metadata-only partial</text>
+
+  <text x="88" y="468" fill="#183A37" font-family="Inter, Segoe UI, sans-serif" font-size="24" font-weight="700">Sample Sources</text>
+  <rect x="86" y="492" width="1092" height="92" rx="18" fill="#FFF7EB" stroke="#E2D4BF" stroke-width="2"/>
+  <text x="114" y="528" fill="#8A5A2F" font-family="Inter, Segoe UI, sans-serif" font-size="16" font-weight="700">GitHub</text>
+  <text x="114" y="560" fill="#1F1F1F" font-family="Inter, Segoe UI, sans-serif" font-size="22" font-weight="700">shadcn-ui/ui</text>
+  <text x="320" y="560" fill="#4B4B4B" font-family="Inter, Segoe UI, sans-serif" font-size="18">Repository metadata + README condensed into a local brief.</text>
+  <text x="1040" y="560" fill="#183A37" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="16" text-anchor="end">success</text>
+
+  <rect x="86" y="606" width="1092" height="92" rx="18" fill="#F8F4FF" stroke="#D8D1F1" stroke-width="2"/>
+  <text x="114" y="642" fill="#4B3EA7" font-family="Inter, Segoe UI, sans-serif" font-size="16" font-weight="700">WeChat + Xiaohongshu</text>
+  <text x="114" y="674" fill="#1F1F1F" font-family="Inter, Segoe UI, sans-serif" font-size="22" font-weight="700">Mixed article and video links</text>
+  <text x="410" y="674" fill="#4B4B4B" font-family="Inter, Segoe UI, sans-serif" font-size="18">Scrapling for dynamic pages, whisper fallback for media.</text>
+  <text x="1040" y="674" fill="#183A37" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="16" text-anchor="end">success</text>
+
+  <rect x="86" y="720" width="1092" height="58" rx="18" fill="#FCEFEA" stroke="#E7C8B9" stroke-width="2"/>
+  <text x="114" y="756" fill="#A04F2E" font-family="Inter, Segoe UI, sans-serif" font-size="16" font-weight="700">X / Weibo note</text>
+  <text x="244" y="756" fill="#3A3A3A" font-family="Inter, Segoe UI, sans-serif" font-size="18">Very short videos may keep metadata and still be marked honestly as partial.</text>
+
+</svg>

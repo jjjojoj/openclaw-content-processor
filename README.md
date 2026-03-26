@@ -9,6 +9,8 @@ English | [简体中文](./README.zh-CN.md)
 
 `openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and saves a local report as `report.md + report.json`.
 
+![Report preview](./assets/report-preview.svg)
+
 It is designed for:
 
 - GitHub repositories
@@ -43,6 +45,15 @@ Real-world validation completed on `2026-03-26`:
 | X/Twitter | Mixed | Public video posts can work, but quality depends on transcription |
 | Weibo | Mixed | Short noisy videos may become `metadata-only partial` |
 | Douyin / YouTube | Supported | Paths implemented; use real links to verify your scenario |
+
+## Release Readiness
+
+Before cutting `v2.3.0`, this repository uses two validation layers:
+
+- installation validation: `bash scripts/bootstrap.sh --install-python`, `bash scripts/bootstrap.sh`, `.venv/bin/python -m py_compile ...`, and `.venv/bin/python -m unittest discover -s tests -v`
+- live-link validation: public GitHub, Zhihu, CSDN, Toutiao, Bilibili, WeChat, Xiaohongshu, X/Twitter, and Weibo samples were checked on `2026-03-26`
+
+See [docs/release-validation.md](./docs/release-validation.md) for the latest release checklist, command set, and platform notes.
 
 ## Features
 
@@ -207,6 +218,11 @@ If you only want the CLI workflow, `agents/openai.yaml` is not required.
 
 ```text
 .
+├── assets/
+│   └── report-preview.svg
+├── docs/
+│   ├── release-validation.md
+│   └── release-validation.zh-CN.md
 ├── README.md
 ├── README.zh-CN.md
 ├── CHANGELOG.md

@@ -1,0 +1,82 @@
+# Release Validation
+
+Last updated: `2026-03-26`
+
+This document records the checks we use before cutting a stable release such as `v2.3.0`.
+
+## Installation Validation
+
+The current release-ready checklist is:
+
+```bash
+bash scripts/bootstrap.sh --install-python
+bash scripts/bootstrap.sh
+.venv/bin/python -m py_compile scripts/process_share_links.py scripts/run_regression.py
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Latest local outcome on `2026-03-26`:
+
+- `bootstrap.sh --install-python`: passed
+- `bootstrap.sh`: passed
+- `py_compile`: passed
+- `unittest`: passed (`15` tests)
+
+## Automated Live Regression
+
+The lightweight public-link regression entrypoint is:
+
+```bash
+.venv/bin/python scripts/run_regression.py --preset extended --analysis-mode heuristic
+```
+
+The `extended` preset covers:
+
+- GitHub
+- Zhihu
+- CSDN
+- Toutiao
+- Bilibili
+
+This preset is intended to verify the layered extraction chain without requiring private cookies or paid APIs.
+
+Latest local outcome on `2026-03-26`: passed (`5/5 success`)
+
+| Platform | Result | Extraction path |
+| --- | --- | --- |
+| GitHub | success | `github api + readme` |
+| Zhihu | success | `scrapling fetch [.Post-RichText]` |
+| CSDN | success | `scrapling fetch [#article_content]` |
+| Toutiao | success | `scrapling stealthy-fetch [.article-content]` |
+| Bilibili | success | `yt-dlp download + whisper-cli` |
+
+## Manual Real-Link Regression
+
+In addition to the preset above, we manually verified representative public share links on `2026-03-26`:
+
+| Platform | Result | Extraction path |
+| --- | --- | --- |
+| GitHub | success | `github api + readme` |
+| Zhihu | success | article extraction |
+| CSDN | success | article extraction |
+| Toutiao | success | `scrapling stealthy-fetch [.article-content]` |
+| Bilibili | success | `yt-dlp download + whisper-cli` |
+| WeChat | success | `scrapling stealthy-fetch [#js_content]` |
+| Xiaohongshu | success | `yt-dlp download + whisper-cli` |
+| X/Twitter | success | `yt-dlp download + whisper-cli` |
+| Weibo | partial | `yt-dlp metadata only` on a very short clip |
+
+Notes:
+
+- `partial` is an honest outcome, not a silent failure. For short or low-speech clips, metadata may be the only reliable result.
+- Social-platform success rates can change over time because anti-bot behavior changes.
+- Cookie, browser-session, and referer support exist for users who need stronger access stability.
+
+## Release Gate Before `v2.3.0`
+
+Before publishing a stable tag:
+
+- all installation checks above should pass on a clean local runtime
+- unit tests should remain green
+- at least one GitHub, one article page, one dynamic page, and one media link should succeed in live regression
+- mixed-outcome platforms such as Weibo should be documented honestly instead of being hidden
