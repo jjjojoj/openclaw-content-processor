@@ -2,6 +2,8 @@
 
 > Turn share links into desktop briefing reports.
 
+English | [简体中文](./README.zh-CN.md)
+
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
@@ -206,6 +208,8 @@ If you only want the CLI workflow, `agents/openai.yaml` is not required.
 ```text
 .
 ├── README.md
+├── README.zh-CN.md
+├── CHANGELOG.md
 ├── LICENSE
 ├── SKILL.md
 ├── .env.example
