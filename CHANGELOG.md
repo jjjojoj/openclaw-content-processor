@@ -6,15 +6,22 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-03-27
+
+First stable release after beta validation.
+
 ### Added
 
-- README preview asset for the GitHub homepage
-- Detailed release validation notes in English and Chinese
+- A visible OpenClaw install prompt block near the top of both READMEs
+- Clear stable-release validation links from the homepage
 
 ### Changed
 
+- Replaced the `shadcn-ui/ui` demo URLs with the more neutral `openai/openai-python`
+- Removed the user-specific `吴总今日信息汇总` example title from `SKILL.md`
+- Promoted repository messaging from beta-oriented language to stable-release language
 - Local git author configuration now uses the GitHub noreply email for contributor attribution
-- README now highlights pre-release installation checks and live-link validation
+- README now highlights installation checks and live-link validation for stable releases
 
 ## [2.3.0-beta.1] - 2026-03-26
 

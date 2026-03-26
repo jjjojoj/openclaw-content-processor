@@ -11,6 +11,22 @@
 
 ![报告预览](./assets/report-preview.svg)
 
+## 用 OpenClaw 安装
+
+如果你想让另一个 OpenClaw 直接帮你安装并完成开箱即用配置，可以直接复制这段提示词：
+
+```text
+请帮我从 GitHub 安装这个 OpenClaw skill，并配置到可以直接使用：
+https://github.com/jjjojoj/openclaw-content-processor.git
+
+安装完成后请继续：
+1. 运行它需要的 bootstrap / setup。
+2. 检查 ffmpeg、whisper-cli 等依赖是否齐全。
+3. 告诉我现在立刻就能处理链接的命令或使用方式。
+```
+
+如果 OpenClaw 的 skill 列表没有立刻刷新，重启一次即可。
+
 适合处理的来源包括：
 
 - GitHub 仓库
@@ -29,9 +45,9 @@
 
 ## 当前状态
 
-当前建议作为 `beta` 发布。
+当前稳定版本：`v2.3.0`
 
-已在 `2026-03-26` 做过真实回归的平台：
+稳定版验证最近一次刷新时间：`2026-03-26`
 
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
@@ -46,9 +62,9 @@
 | 微博 | 条件可用 | 极短视频可能退化为 `metadata-only partial` |
 | 抖音 / YouTube | 已实现 | 建议用真实业务链接继续验证 |
 
-## 发布前验证
+## 发布验证
 
-在切 `v2.3.0` 正式版前，这个仓库按两层方式做验证：
+当前稳定版由两层验证支撑：
 
 - 安装验证：`bash scripts/bootstrap.sh --install-python`、`bash scripts/bootstrap.sh`、`.venv/bin/python -m py_compile ...`、`.venv/bin/python -m unittest discover -s tests -v`
 - 真实链接验证：`2026-03-26` 已对 GitHub、知乎、CSDN、头条、Bilibili、微信公众号、小红书、X/Twitter、微博做过公开样本回归
@@ -92,13 +108,13 @@ bash scripts/bootstrap.sh --install-python
 ### 3. 直接运行
 
 ```bash
-bash scripts/run.sh "https://github.com/shadcn-ui/ui"
+bash scripts/run.sh "https://github.com/openai/openai-python"
 ```
 
 如果也想顺手检查系统依赖：
 
 ```bash
-bash scripts/run.sh --auto-bootstrap "https://github.com/shadcn-ui/ui"
+bash scripts/run.sh --auto-bootstrap "https://github.com/openai/openai-python"
 ```
 
 ## 使用方式
@@ -107,7 +123,7 @@ bash scripts/run.sh --auto-bootstrap "https://github.com/shadcn-ui/ui"
 
 ```bash
 bash scripts/run.sh \
-  "https://github.com/shadcn-ui/ui" \
+  "https://github.com/openai/openai-python" \
   "https://mp.weixin.qq.com/s/xxxxxxxx"
 ```
 

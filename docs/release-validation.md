@@ -1,8 +1,8 @@
 # Release Validation
 
-Last updated: `2026-03-26`
+Last updated: `2026-03-27`
 
-This document records the checks we use before cutting a stable release such as `v2.3.0`.
+This document records the checks used to cut `v2.3.0` and should remain the baseline for future stable releases.
 
 ## Installation Validation
 
@@ -72,7 +72,7 @@ Notes:
 - Social-platform success rates can change over time because anti-bot behavior changes.
 - Cookie, browser-session, and referer support exist for users who need stronger access stability.
 
-## Release Gate Before `v2.3.0`
+## Stable Release Gate
 
 Before publishing a stable tag:
 

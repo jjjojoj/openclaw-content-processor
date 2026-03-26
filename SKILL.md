@@ -58,7 +58,7 @@ bash "$SKILL_DIR/scripts/run.sh" \
 
 ```bash
 bash "$SKILL_DIR/scripts/run.sh" \
-  --report-title "吴总今日信息汇总" \
+  --report-title "今日信息汇总" \
   "https://mp.weixin.qq.com/..." \
   "https://v.douyin.com/..."
 ```
@@ -67,9 +67,9 @@ bash "$SKILL_DIR/scripts/run.sh" \
 
 ```bash
 bash "$SKILL_DIR/scripts/run.sh" \
-  --title "吴总今日信息汇总" \
+  --title "多平台链接汇总" \
   --source "https://mp.weixin.qq.com/..." \
-  --source "https://github.com/shadcn-ui/ui"
+  --source "https://github.com/openai/openai-python"
 ```
 
 需要登录态时：

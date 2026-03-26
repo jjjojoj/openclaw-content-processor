@@ -11,6 +11,22 @@ English | [简体中文](./README.zh-CN.md)
 
 ![Report preview](./assets/report-preview.svg)
 
+## Install In OpenClaw
+
+If you want another OpenClaw agent to install and bootstrap this skill for you, copy this prompt:
+
+```text
+Install this OpenClaw skill from GitHub and make it ready to use:
+https://github.com/jjjojoj/openclaw-content-processor.git
+
+After installing:
+1. Run the required bootstrap/setup steps.
+2. Check whether dependencies such as ffmpeg and whisper-cli are available.
+3. Tell me the exact command or usage prompt I can use right away to process links.
+```
+
+If the skill list does not refresh immediately, restart OpenClaw once.
+
 It is designed for:
 
 - GitHub repositories
@@ -29,9 +45,9 @@ Most link summarizers either stay inside chat or only handle one platform well. 
 
 ## Validated Status
 
-Current release target: `beta`
+Current stable release: `v2.3.0`
 
-Real-world validation completed on `2026-03-26`:
+Stable-release validation last refreshed on `2026-03-26`:
 
 | Platform | Status | Notes |
 | --- | --- | --- |
@@ -46,9 +62,9 @@ Real-world validation completed on `2026-03-26`:
 | Weibo | Mixed | Short noisy videos may become `metadata-only partial` |
 | Douyin / YouTube | Supported | Paths implemented; use real links to verify your scenario |
 
-## Release Readiness
+## Release Validation
 
-Before cutting `v2.3.0`, this repository uses two validation layers:
+The current stable release is backed by two validation layers:
 
 - installation validation: `bash scripts/bootstrap.sh --install-python`, `bash scripts/bootstrap.sh`, `.venv/bin/python -m py_compile ...`, and `.venv/bin/python -m unittest discover -s tests -v`
 - live-link validation: public GitHub, Zhihu, CSDN, Toutiao, Bilibili, WeChat, Xiaohongshu, X/Twitter, and Weibo samples were checked on `2026-03-26`
@@ -92,13 +108,13 @@ This installs the skill-local runtime into `.venv/`, including:
 ### 3. Run it
 
 ```bash
-bash scripts/run.sh "https://github.com/shadcn-ui/ui"
+bash scripts/run.sh "https://github.com/openai/openai-python"
 ```
 
 Or let it also check system dependencies:
 
 ```bash
-bash scripts/run.sh --auto-bootstrap "https://github.com/shadcn-ui/ui"
+bash scripts/run.sh --auto-bootstrap "https://github.com/openai/openai-python"
 ```
 
 ## Usage
@@ -107,7 +123,7 @@ bash scripts/run.sh --auto-bootstrap "https://github.com/shadcn-ui/ui"
 
 ```bash
 bash scripts/run.sh \
-  "https://github.com/shadcn-ui/ui" \
+  "https://github.com/openai/openai-python" \
   "https://mp.weixin.qq.com/s/xxxxxxxx"
 ```
 
