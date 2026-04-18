@@ -1,19 +1,19 @@
 # OpenClaw Content Processor
 
-> 把分享链接整理成落地到桌面的信息汇总报告。
+> 把分享链接整理成适合 Obsidian 的本地笔记和信息汇总报告。
 
 [English](./README.md) | 简体中文
 
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`openclaw-content-processor` 是一个 OpenClaw skill，也是一个可独立运行的命令行工具。它会接收一个或多个分享链接，按来源类型自动抓取、清洗、归纳，并输出本地 `report.md + report.json`。
+`openclaw-content-processor` 是一个 OpenClaw skill，也是一个可独立运行的命令行工具。它会接收一个或多个分享链接，按来源类型自动抓取、清洗、归纳，并输出本地 Markdown + JSON 结果。现在也支持直接写入 Obsidian Vault，自动生成 frontmatter 和单条来源笔记。
 
 ![报告预览](./assets/report-preview.svg)
 
 ## 用 OpenClaw 安装
 
-如果你想让另一个 OpenClaw 直接帮你安装并完成开箱即用配置，可以直接复制这段提示词：
+如果你想 OpenClaw 直接帮你安装并完成开箱即用配置，可以直接复制这段提示词：
 
 ```text
 请帮我从 GitHub 安装这个 OpenClaw skill，并配置到可以直接使用：
@@ -22,7 +22,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 安装完成后请继续：
 1. 运行它需要的 bootstrap / setup。
 2. 检查 ffmpeg、whisper-cli 等依赖是否齐全。
-3. 告诉我现在立刻就能处理链接的命令或使用方式。
+3. 如果我用 Obsidian，告诉我 Vault 路径怎么配，以及现在立刻就能处理链接的命令。
 ```
 
 如果 OpenClaw 的 skill 列表没有立刻刷新，重启一次即可。
@@ -38,7 +38,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 
 这个项目不是“只在聊天里回一句摘要”的链接工具，而是偏向本地工作流：
 
-- 本地优先：先把报告保存到磁盘
+- 本地优先：先把内容落到本地笔记，Obsidian 也是一级目标
 - 多链接批处理：一批链接生成一份报告
 - 分层回退：GitHub、网页、动态页、媒体链接分别走不同 extractor
 - 自动化友好：同时输出 Markdown 和结构化 JSON
@@ -60,7 +60,8 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 | 小红书 | 基本可用 | 可能需要媒体转写 |
 | X/Twitter | 条件可用 | 公开视频常可处理，但质量受转写影响 |
 | 微博 | 条件可用 | 极短视频可能退化为 `metadata-only partial` |
-| 抖音 / YouTube | 已实现 | 建议用真实业务链接继续验证 |
+| 抖音 | 基本可用 | 顺序为“已有 cookie -> 扫码登录 -> Playwright 下载兜底” |
+| YouTube | 已实现 | 公开视频通常可直接处理 |
 
 ## 发布验证
 
@@ -81,6 +82,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 | 媒体处理链路 | 优先 `yt-dlp` 字幕，无字幕则 `ffmpeg + whisper-cli` |
 | 本地分析 | 生成 summary、highlights、keywords、analysis |
 | 结构化输出 | 保存 `report.md`、`report.json` 和逐项 JSON |
+| Obsidian 导出 | 输出 Vault 友好的 frontmatter 笔记，并为每个来源生成独立 markdown |
 | 批处理容错 | 单条失败不会拖垮整批 |
 
 ## 快速开始
@@ -107,8 +109,20 @@ bash scripts/bootstrap.sh --install-python
 
 ### 3. 直接运行
 
+桌面 / 本地报告模式：
+
 ```bash
 bash scripts/run.sh "https://github.com/openai/openai-python"
+```
+
+Obsidian 模式：
+
+```bash
+bash scripts/run.sh \
+  --obsidian \
+  --vault "$HOME/Documents/MyVault" \
+  --folder "Inbox/内容摘要" \
+  "https://github.com/openai/openai-python"
 ```
 
 如果也想顺手检查系统依赖：
@@ -136,6 +150,18 @@ bash scripts/run.sh \
   --source "https://video.weibo.com/show?fid=..."
 ```
 
+### Obsidian 优先工作流
+
+```bash
+bash scripts/run.sh \
+  --obsidian \
+  --vault "$HOME/Documents/MyVault" \
+  --folder "Inbox/内容摘要" \
+  --title "AI 链接收件箱" \
+  --source "https://github.com/openai/openai-python" \
+  --source "https://mp.weixin.qq.com/s/xxxxxxxx"
+```
+
 ### 带登录态
 
 ```bash
@@ -145,6 +171,26 @@ bash scripts/run.sh \
   --source "https://mp.weixin.qq.com/s/xxxxxxxx"
 ```
 
+### 抖音扫码登录
+
+```bash
+bash scripts/run.sh --login-douyin
+```
+
+登录成功后，skill 会把认证保存到 `auth/douyin/`，之后处理抖音链接时会自动复用。如果你只是想先确认真实视频地址能不能解析出来，可以运行：
+
+```bash
+bash scripts/run.sh --resolve-douyin-url "https://v.douyin.com/xxxxxxxx/"
+```
+
+抖音媒体链路的顺序是：
+
+- 先尝试已有 cookie / 登录态
+- 认证失败时自动触发一次扫码登录重试
+- 仍然失败再回退到 Playwright 网络拦截下载
+
+临时下载用于转写的 mp4 会在转写完成后自动删除，不会留在最终报告目录里。
+
 ### 运行轻量回归
 
 ```bash
@@ -153,13 +199,13 @@ python scripts/run_regression.py --preset core
 
 ## 输出结果
 
-默认输出根目录：
+默认桌面输出根目录：
 
 ```text
 ~/Desktop/内容摘要/YYYY-MM-DD/<timestamp>/
 ```
 
-每次运行会生成：
+桌面模式会生成：
 
 ```text
 report.md
@@ -168,6 +214,25 @@ items/
   source-1.json
   source-2.json
 ```
+
+Obsidian 模式会生成：
+
+```text
+<Vault>/<Folder>/YYYY-MM-DD/<timestamp_title>/
+  <timestamp_title>.md
+  report.json
+  items/
+    01_title.json
+  sources/
+    01_platform_title.md
+```
+
+其中 Obsidian 导出包含：
+
+- 一条整批汇总笔记
+- 每个来源一条独立 markdown 笔记
+- 适合 Dataview / 过滤 / 标签的 YAML frontmatter
+- 汇总笔记和来源笔记之间的相对链接
 
 `report.json` 里会包含：
 
@@ -214,6 +279,9 @@ CLI 结束时会输出一个 JSON 概览，例如：
 - `OPENAI_BASE_URL`
 - `CONTENT_PROCESSOR_ANALYSIS_MODE`
 - `CONTENT_PROCESSOR_ANALYSIS_MODEL`
+- `CONTENT_PROCESSOR_OUTPUT_MODE`
+- `CONTENT_PROCESSOR_OBSIDIAN_VAULT`
+- `CONTENT_PROCESSOR_OBSIDIAN_FOLDER`
 - `CONTENT_PROCESSOR_COOKIES_FILE`
 - `CONTENT_PROCESSOR_COOKIES_FROM_BROWSER`
 - `CONTENT_PROCESSOR_COOKIE_HEADER`

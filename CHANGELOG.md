@@ -6,6 +6,19 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 
 ## [Unreleased]
 
+### Added
+
+- Obsidian export mode with vault-ready digest notes, YAML frontmatter, and per-source markdown notes
+- `--obsidian`, `--vault`, and `--folder` convenience flags in `scripts/run.sh`
+- Douyin QR-login helper flow via `--login-douyin` and direct media URL checks via `--resolve-douyin-url`
+
+### Changed
+
+- README and SKILL now describe local note workflows with Obsidian as a first-class target
+- `.env.example` now includes Obsidian output configuration
+- Douyin processing now follows `saved auth -> QR login retry -> Playwright fallback`
+- Temporary mp4 files used only for transcription are deleted after transcription completes
+
 ## [2.3.0] - 2026-03-27
 
 First stable release after beta validation.

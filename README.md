@@ -1,19 +1,19 @@
 # OpenClaw Content Processor
 
-> Turn share links into desktop briefing reports.
+> Turn share links into Obsidian-friendly local notes and briefing reports.
 
 English | [简体中文](./README.zh-CN.md)
 
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and saves a local report as `report.md + report.json`.
+`openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and saves them as local Markdown + JSON outputs. It can now write directly into an Obsidian vault with frontmatter and per-source notes.
 
 ![Report preview](./assets/report-preview.svg)
 
 ## Install In OpenClaw
 
-If you want another OpenClaw agent to install and bootstrap this skill for you, copy this prompt:
+If you want OpenClaw to install and bootstrap this skill for you, copy this prompt:
 
 ```text
 Install this OpenClaw skill from GitHub and make it ready to use:
@@ -22,7 +22,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 After installing:
 1. Run the required bootstrap/setup steps.
 2. Check whether dependencies such as ffmpeg and whisper-cli are available.
-3. Tell me the exact command or usage prompt I can use right away to process links.
+3. If I use Obsidian, tell me how to configure the vault path and the exact command I can run right away.
 ```
 
 If the skill list does not refresh immediately, restart OpenClaw once.
@@ -38,7 +38,7 @@ It is designed for:
 
 Most link summarizers either stay inside chat or only handle one platform well. This project is opinionated in a different way:
 
-- local-first: always write a report to disk first
+- local-first: always write notes to disk first, with Obsidian as a first-class target
 - multi-source: accept one or many links in one run
 - layered fallback: use different extractors for GitHub, static web, dynamic pages, and media
 - automation-friendly: emit both Markdown and structured JSON
@@ -60,7 +60,8 @@ Stable-release validation last refreshed on `2026-03-26`:
 | Xiaohongshu | Usually works | May need media transcription |
 | X/Twitter | Mixed | Public video posts can work, but quality depends on transcription |
 | Weibo | Mixed | Short noisy videos may become `metadata-only partial` |
-| Douyin / YouTube | Supported | Paths implemented; use real links to verify your scenario |
+| Douyin | Usually works | Order is “saved auth -> QR login retry -> Playwright download fallback” |
+| YouTube | Supported | Public videos usually work without extra auth |
 
 ## Release Validation
 
@@ -81,6 +82,7 @@ See [docs/release-validation.md](./docs/release-validation.md) for the latest re
 | Media pipeline | Uses `yt-dlp` subtitles first, then `ffmpeg + whisper-cli` |
 | Local analysis | Produces summary, highlights, keywords, and analysis text |
 | Structured output | Saves `report.md`, `report.json`, and per-item JSON files |
+| Obsidian export | Writes vault-ready notes with YAML frontmatter and one markdown note per source |
 | Batch-safe execution | One bad source does not kill the whole run |
 
 ## Quick Start
@@ -107,8 +109,20 @@ This installs the skill-local runtime into `.venv/`, including:
 
 ### 3. Run it
 
+Desktop / local report mode:
+
 ```bash
 bash scripts/run.sh "https://github.com/openai/openai-python"
+```
+
+Obsidian mode:
+
+```bash
+bash scripts/run.sh \
+  --obsidian \
+  --vault "$HOME/Documents/MyVault" \
+  --folder "Inbox/内容摘要" \
+  "https://github.com/openai/openai-python"
 ```
 
 Or let it also check system dependencies:
@@ -136,6 +150,18 @@ bash scripts/run.sh \
   --source "https://video.weibo.com/show?fid=..."
 ```
 
+### Obsidian-first workflow
+
+```bash
+bash scripts/run.sh \
+  --obsidian \
+  --vault "$HOME/Documents/MyVault" \
+  --folder "Inbox/内容摘要" \
+  --title "AI Links Inbox" \
+  --source "https://github.com/openai/openai-python" \
+  --source "https://mp.weixin.qq.com/s/xxxxxxxx"
+```
+
 ### With browser session / cookies
 
 ```bash
@@ -145,6 +171,26 @@ bash scripts/run.sh \
   --source "https://mp.weixin.qq.com/s/xxxxxxxx"
 ```
 
+### Douyin QR login
+
+```bash
+bash scripts/run.sh --login-douyin
+```
+
+After a successful scan, the skill saves the auth state under `auth/douyin/` and reuses it automatically for future Douyin links. If you only want to verify that the real media URL is resolvable first, run:
+
+```bash
+bash scripts/run.sh --resolve-douyin-url "https://v.douyin.com/xxxxxxxx/"
+```
+
+The Douyin media path now follows this order:
+
+- try saved cookies / auth first
+- if auth is still required, trigger one QR-login retry
+- if that still does not work, fall back to Playwright network interception
+
+Temporary mp4 files downloaded only for transcription are deleted automatically after transcription finishes, so they do not accumulate in the final report output.
+
 ### Lightweight regression
 
 ```bash
@@ -153,13 +199,13 @@ python scripts/run_regression.py --preset core
 
 ## Output
 
-Default output root:
+Default desktop output root:
 
 ```text
 ~/Desktop/内容摘要/YYYY-MM-DD/<timestamp>/
 ```
 
-Each run produces:
+Desktop mode produces:
 
 ```text
 report.md
@@ -168,6 +214,25 @@ items/
   source-1.json
   source-2.json
 ```
+
+Obsidian mode produces:
+
+```text
+<Vault>/<Folder>/YYYY-MM-DD/<timestamp_title>/
+  <timestamp_title>.md
+  report.json
+  items/
+    01_title.json
+  sources/
+    01_platform_title.md
+```
+
+The Obsidian note set includes:
+
+- one digest note for the whole batch
+- one markdown note per source
+- YAML frontmatter for Dataview / filtering / tagging
+- relative markdown links between the digest note and source notes
 
 `report.json` includes:
 
@@ -214,6 +279,9 @@ Most useful variables:
 - `OPENAI_BASE_URL`
 - `CONTENT_PROCESSOR_ANALYSIS_MODE`
 - `CONTENT_PROCESSOR_ANALYSIS_MODEL`
+- `CONTENT_PROCESSOR_OUTPUT_MODE`
+- `CONTENT_PROCESSOR_OBSIDIAN_VAULT`
+- `CONTENT_PROCESSOR_OBSIDIAN_FOLDER`
 - `CONTENT_PROCESSOR_COOKIES_FILE`
 - `CONTENT_PROCESSOR_COOKIES_FROM_BROWSER`
 - `CONTENT_PROCESSOR_COOKIE_HEADER`

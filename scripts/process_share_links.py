@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Process one or more share links and build a desktop summary report."""
+"""Process one or more share links and build desktop or Obsidian-friendly reports."""
 
 from __future__ import annotations
 
@@ -27,7 +27,12 @@ USER_AGENT = (
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
 )
 SKILL_DIR = Path(__file__).resolve().parent.parent
+AUTH_ROOT = SKILL_DIR / "auth"
+DOUYIN_AUTH_DIR = AUTH_ROOT / "douyin"
+DOUYIN_AUTH_COOKIES_FILE = DOUYIN_AUTH_DIR / "cookies.txt"
+DOUYIN_AUTH_SCRIPT = SKILL_DIR / "scripts" / "douyin_auth.py"
 DEFAULT_OUTPUT_ROOT = Path.home() / "Desktop" / "内容摘要"
+DEFAULT_OBSIDIAN_FOLDER = "Inbox/内容摘要"
 REPORT_SCHEMA_VERSION = "1.0.0"
 ANALYSIS_TEXT_CHAR_LIMIT = 12000
 ANALYSIS_SENTENCE_LIMIT = 200
@@ -108,6 +113,8 @@ class RequestOptions:
     cookies_file: str = ""
     cookies_from_browser: str = ""
     extra_headers: dict[str, str] = field(default_factory=dict)
+    auto_login_douyin: bool = True
+    douyin_login_attempted: bool = False
 
 
 @dataclass(slots=True)
@@ -115,6 +122,20 @@ class AnalysisOptions:
     mode: str = "auto"
     model: str = DEFAULT_ANALYSIS_MODEL
     timeout: int = 60
+
+
+@dataclass(slots=True)
+class OutputOptions:
+    mode: str = "desktop"
+    output_root: Path = DEFAULT_OUTPUT_ROOT
+    obsidian_vault: str = ""
+    obsidian_folder: str = DEFAULT_OBSIDIAN_FOLDER
+
+
+@dataclass(slots=True)
+class SourceInput:
+    source: str
+    context_text: str = ""
 
 
 def normalize_cookie_header(cookie_header: str | None) -> str:
@@ -206,6 +227,8 @@ def derive_failure_code(warnings: Iterable[str]) -> str:
     normalized = " | ".join(warnings).lower()
     if not normalized:
         return "content_unavailable"
+    if "fresh cookies" in normalized or "登录" in normalized or "cookie" in normalized:
+        return "auth_required"
     if "缺少" in normalized or "missing" in normalized:
         return "missing_dependency"
     if "timeout" in normalized or "超时" in normalized:
@@ -371,6 +394,17 @@ def find_scrapling_bin() -> str | None:
     return None
 
 
+def parse_json_text(text: str) -> dict[str, object] | None:
+    normalized = (text or "").strip()
+    if not normalized:
+        return None
+    try:
+        payload = json.loads(normalized)
+    except json.JSONDecodeError:
+        return None
+    return payload if isinstance(payload, dict) else None
+
+
 def build_scrapling_env(scrapling_bin: str) -> dict[str, str]:
     env = os.environ.copy()
     candidate_paths = []
@@ -410,6 +444,70 @@ def normalize_space(text: str) -> str:
     return text.strip()
 
 
+def normalize_share_context(text: str) -> str:
+    cleaned = URL_RE.sub(" ", text or "")
+    cleaned = re.sub(
+        r"\s+[A-Za-z0-9@._-]{1,16}\s+\d{2}/\d{2}\s+[A-Za-z0-9@._-]{1,16}:/\s*",
+        " ",
+        cleaned,
+    )
+    cleaned = re.sub(r"\b[A-Za-z0-9@._-]{1,16}:/\b", " ", cleaned)
+    cleaned = re.sub(r"^(?:\d+(?:\.\d+)?\s*)", "", cleaned.strip())
+
+    prefix_patterns = [
+        r"^复制打开抖音[，,]?(?:看看)?",
+        r"^打开抖音[，,]?(?:看看)?",
+        r"^复制打开小红书[，,]?(?:看看)?",
+        r"^打开小红书[，,]?(?:看看)?",
+        r"^复制打开微博[，,]?(?:看看)?",
+        r"^打开微博[，,]?(?:看看)?",
+        r"^复制打开哔哩哔哩[，,]?(?:看看)?",
+        r"^打开哔哩哔哩[，,]?(?:看看)?",
+        r"^复制打开B站[，,]?(?:看看)?",
+        r"^打开B站[，,]?(?:看看)?",
+        r"^看看",
+    ]
+    for pattern in prefix_patterns:
+        cleaned = re.sub(pattern, "", cleaned, count=1).strip()
+
+    cleaned = re.sub(
+        r"(?:帮我)?(?:摘要一下这个|摘要一下|摘要这个|总结一下这个|总结一下|概括一下)\s*$",
+        "",
+        cleaned,
+    )
+    cleaned = re.sub(r"^[，,、:：\-\s]+", "", cleaned)
+    cleaned = re.sub(r"[，,、:：\-\s]+$", "", cleaned)
+    return normalize_space(cleaned)
+
+
+def extract_share_context_metadata(context_text: str) -> tuple[str, str]:
+    cleaned = normalize_share_context(context_text)
+    if not cleaned:
+        return "", ""
+
+    author = ""
+    title = cleaned
+    work_match = re.match(r"^【(?P<author>[^】]{1,40})的作品】(?P<title>.+)$", cleaned)
+    if work_match:
+        author = normalize_space(work_match.group("author"))
+        title = normalize_space(work_match.group("title"))
+        return author, title
+
+    generic_match = re.match(r"^【(?P<author>[^】]{1,40})】(?P<title>.+)$", cleaned)
+    if generic_match:
+        author = normalize_space(generic_match.group("author"))
+        title = normalize_space(generic_match.group("title"))
+
+    return author, title
+
+
+def build_share_text_fallback_content(context_text: str, limit: int) -> str:
+    cleaned = normalize_share_context(context_text)
+    if len(cleaned) < 10:
+        return ""
+    return cleaned[:limit]
+
+
 def limit_analysis_text(text: str, max_chars: int = ANALYSIS_TEXT_CHAR_LIMIT) -> str:
     normalized = normalize_space(text)
     if len(normalized) <= max_chars:
@@ -438,33 +536,199 @@ def sanitize_filename(text: str, default: str = "report") -> str:
     return cleaned[:80] or default
 
 
+def sanitize_obsidian_tag(text: str, default: str = "content") -> str:
+    cleaned = text.strip().lower().replace(" ", "-")
+    cleaned = re.sub(r"[^\w\u4e00-\u9fff/-]+", "-", cleaned)
+    cleaned = re.sub(r"-{2,}", "-", cleaned)
+    cleaned = re.sub(r"/{2,}", "/", cleaned)
+    cleaned = cleaned.strip("-/")
+    return cleaned or default
+
+
+def split_obsidian_folder(folder: str) -> list[str]:
+    return [part for part in folder.replace("\\", "/").split("/") if part.strip()]
+
+
+def yaml_scalar(value: object) -> str:
+    if value is None:
+        return '""'
+    if isinstance(value, bool):
+        return "true" if value else "false"
+    if isinstance(value, (int, float)):
+        return str(value)
+    return json.dumps(str(value), ensure_ascii=False)
+
+
+def render_yaml_frontmatter(fields: dict[str, object]) -> str:
+    lines = ["---"]
+    for key, value in fields.items():
+        if isinstance(value, list):
+            values = [item for item in value if item not in {None, ""}]
+            if not values:
+                lines.append(f"{key}: []")
+                continue
+            lines.append(f"{key}:")
+            for item in values:
+                lines.append(f"  - {yaml_scalar(item)}")
+            continue
+        lines.append(f"{key}: {yaml_scalar(value)}")
+    lines.append("---")
+    return "\n".join(lines)
+
+
 def shorten(text: str, limit: int) -> str:
     if len(text) <= limit:
         return text
     return text[: max(0, limit - 1)].rstrip() + "…"
 
 
-def extract_sources(raw_sources: Iterable[str]) -> list[str]:
-    sources: list[str] = []
+def extract_source_inputs(raw_sources: Iterable[str]) -> list[SourceInput]:
+    sources: list[SourceInput] = []
     for raw in raw_sources:
         candidate = raw.strip()
         if not candidate:
             continue
         if Path(candidate).expanduser().exists():
-            sources.append(str(Path(candidate).expanduser()))
+            sources.append(SourceInput(str(Path(candidate).expanduser())))
             continue
         urls = URL_RE.findall(candidate)
+        context_text = normalize_share_context(candidate)
         if urls:
-            sources.extend(urls)
+            for url in urls:
+                sources.append(SourceInput(url, context_text=context_text))
         else:
-            sources.append(candidate)
-    deduped: list[str] = []
-    seen: set[str] = set()
+            sources.append(SourceInput(candidate, context_text=context_text))
+    deduped: list[SourceInput] = []
+    seen: dict[str, int] = {}
     for source in sources:
-        if source not in seen:
+        if source.source not in seen:
             deduped.append(source)
-            seen.add(source)
+            seen[source.source] = len(deduped) - 1
+            continue
+        existing = deduped[seen[source.source]]
+        if len(source.context_text) > len(existing.context_text):
+            deduped[seen[source.source]] = source
     return deduped
+
+
+def extract_sources(raw_sources: Iterable[str]) -> list[str]:
+    return [entry.source for entry in extract_source_inputs(raw_sources)]
+
+
+def serialize_source_inputs(sources: Iterable[SourceInput]) -> list[dict[str, str]]:
+    return [
+        {
+            "source": entry.source,
+            "context_text": entry.context_text,
+        }
+        for entry in sources
+    ]
+
+
+def source_inputs_include_platform(
+    sources: Iterable[SourceInput],
+    platform_key: str,
+) -> bool:
+    for entry in sources:
+        classified, _ = classify_source(entry.source)
+        if classified == platform_key:
+            return True
+    return False
+
+
+def maybe_attach_saved_douyin_auth(
+    sources: Iterable[SourceInput],
+    request_options: RequestOptions,
+) -> RequestOptions:
+    if request_options.cookies_file or request_options.cookies_from_browser or request_options.cookie_header:
+        return request_options
+    if not source_inputs_include_platform(sources, "douyin"):
+        return request_options
+    if DOUYIN_AUTH_COOKIES_FILE.exists():
+        request_options.cookies_file = str(DOUYIN_AUTH_COOKIES_FILE)
+    return request_options
+
+
+def can_attempt_douyin_login(request_options: RequestOptions) -> bool:
+    return (
+        request_options.auto_login_douyin
+        and not request_options.douyin_login_attempted
+        and sys.stdin.isatty()
+        and sys.stdout.isatty()
+        and DOUYIN_AUTH_SCRIPT.exists()
+    )
+
+
+def maybe_run_douyin_login(request_options: RequestOptions, timeout_seconds: int = 180) -> tuple[dict[str, object] | None, list[str]]:
+    request_options.douyin_login_attempted = True
+    if not DOUYIN_AUTH_SCRIPT.exists():
+        return None, ["缺少 Douyin Playwright helper，无法发起扫码登录。"]
+    if not sys.stdin.isatty() or not sys.stdout.isatty():
+        return None, ["抖音需要登录态，但当前会话不可交互，无法自动发起扫码登录。"]
+
+    log("Douyin requires login. Opening a QR login window...")
+    login_env = dict(os.environ)
+    login_env["CONTENT_PROCESSOR_DOUYIN_NO_PROMPT"] = "1"
+    result = run_command(
+        [
+            sys.executable,
+            str(DOUYIN_AUTH_SCRIPT),
+            "login",
+            "--timeout",
+            str(timeout_seconds),
+        ],
+        timeout=timeout_seconds + 30,
+        env=login_env,
+    )
+    payload = parse_json_text(result.stdout or "")
+    if result.returncode == 0 and isinstance(payload, dict) and payload.get("status") == "success":
+        if DOUYIN_AUTH_COOKIES_FILE.exists():
+            request_options.cookies_file = str(DOUYIN_AUTH_COOKIES_FILE)
+            request_options.cookies_from_browser = ""
+            request_options.cookie_header = ""
+        log("Douyin QR login saved. Retrying with fresh auth.")
+        return payload, []
+
+    error = normalize_space(result.stderr or result.stdout)
+    if error:
+        return None, [f"抖音扫码登录失败: {shorten(error, 220)}"]
+    return None, ["抖音扫码登录失败，未检测到稳定登录态。"]
+
+
+def apply_media_metadata(item: dict[str, object], metadata: dict[str, object]) -> None:
+    item["title"] = str(metadata.get("title") or item.get("title") or "")
+    item["author"] = str(
+        metadata.get("uploader")
+        or metadata.get("channel")
+        or metadata.get("creator")
+        or metadata.get("uploader_id")
+        or item.get("author")
+        or ""
+    )
+    upload_date = str(metadata.get("upload_date") or "")
+    if len(upload_date) == 8 and upload_date.isdigit():
+        item["published_at"] = f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
+    elif metadata.get("release_timestamp"):
+        item["published_at"] = str(metadata.get("release_timestamp") or "")
+    duration = metadata.get("duration")
+    if isinstance(duration, (int, float)):
+        item["duration"] = format_duration(duration) or ""
+    elif metadata.get("duration_string"):
+        item["duration"] = str(metadata["duration_string"])
+
+
+def cleanup_transient_media_file(media_path: Path, tmpdir: Path) -> None:
+    try:
+        resolved_media = media_path.resolve()
+        resolved_tmpdir = tmpdir.resolve()
+    except FileNotFoundError:
+        return
+    if resolved_tmpdir not in resolved_media.parents:
+        return
+    try:
+        resolved_media.unlink(missing_ok=True)
+    except Exception:  # noqa: BLE001
+        return
 
 
 def classify_source(source: str) -> tuple[str, str]:
@@ -968,6 +1232,38 @@ def download_media_for_transcription(
     return None, ["未找到下载后的媒体文件。"]
 
 
+def download_douyin_media_with_playwright(
+    url: str,
+    tmpdir: Path,
+) -> tuple[dict[str, object] | None, list[str]]:
+    if not DOUYIN_AUTH_SCRIPT.exists():
+        return None, ["缺少 Douyin Playwright helper，无法执行扫码登录/浏览器下载兜底。"]
+
+    result = run_command(
+        [
+            sys.executable,
+            str(DOUYIN_AUTH_SCRIPT),
+            "download",
+            url,
+            "--output-dir",
+            str(tmpdir),
+        ],
+        timeout=300,
+    )
+    payload = parse_json_text(result.stdout or "")
+    warnings: list[str] = []
+    if result.returncode != 0:
+        error = normalize_space(result.stderr or result.stdout)
+        if error:
+            warnings.append(f"Playwright 抖音下载失败: {shorten(error, 220)}")
+    if not payload:
+        return None, warnings
+    payload_warnings = payload.get("warnings")
+    if isinstance(payload_warnings, list):
+        warnings.extend(str(value) for value in payload_warnings if str(value).strip())
+    return payload, warnings
+
+
 def extract_with_scrapling(
     url: str,
     platform_key: str,
@@ -1424,11 +1720,15 @@ def build_item(
     source: str,
     max_content_chars: int,
     request_options: RequestOptions,
+    source_context: str = "",
 ) -> dict[str, object]:
     platform_key, detail = classify_source(source)
     label = PLATFORM_LABELS.get(platform_key, platform_key)
+    normalized_context = normalize_share_context(source_context)
+    context_author, context_title = extract_share_context_metadata(normalized_context)
     item: dict[str, object] = {
         "source": source,
+        "source_context": normalized_context,
         "platform_key": platform_key,
         "platform": label,
         "detail": detail,
@@ -1446,6 +1746,7 @@ def build_item(
         "warning_count": 0,
         "content_chars": 0,
         "failure_code": "",
+        "fallback_only": False,
         "analysis": "",
         "analysis_method": "",
         "source_metadata": {},
@@ -1486,28 +1787,11 @@ def build_item(
             item["extract_method"] = github_method or "github api"
 
     if platform_key in {"youtube", "bilibili", "douyin", "xiaohongshu", "weibo", "x"}:
+        media_attempt_warnings: list[str] = []
+        media_path_succeeded = False
         metadata, meta_warnings = load_yt_metadata(source, request_options)
-        warnings.extend(meta_warnings)
-        item["title"] = str(metadata.get("title") or "")
-        item["author"] = str(
-            metadata.get("uploader")
-            or metadata.get("channel")
-            or metadata.get("creator")
-            or metadata.get("uploader_id")
-            or ""
-        )
-        upload_date = str(metadata.get("upload_date") or "")
-        if len(upload_date) == 8 and upload_date.isdigit():
-            item["published_at"] = (
-                f"{upload_date[:4]}-{upload_date[4:6]}-{upload_date[6:8]}"
-            )
-        else:
-            item["published_at"] = str(metadata.get("release_timestamp") or "")
-        duration = metadata.get("duration")
-        if isinstance(duration, (int, float)):
-            item["duration"] = format_duration(duration) or ""
-        elif metadata.get("duration_string"):
-            item["duration"] = str(metadata["duration_string"])
+        media_attempt_warnings.extend(meta_warnings)
+        apply_media_metadata(item, metadata)
 
         description = clean_transcript_text(str(metadata.get("description") or ""))
         with tempfile.TemporaryDirectory() as tmp:
@@ -1517,27 +1801,105 @@ def build_item(
                 tmpdir,
                 request_options,
             )
-            warnings.extend(subtitle_warnings)
+            media_attempt_warnings.extend(subtitle_warnings)
             if subtitle_text:
                 content = normalize_space("\n\n".join(part for part in [description, subtitle_text] if part))
                 item["extract_method"] = subtitle_method or "yt-dlp subtitles"
+                media_path_succeeded = True
             else:
                 downloaded, download_warnings = download_media_for_transcription(
                     source,
                     tmpdir,
                     request_options,
                 )
-                warnings.extend(download_warnings)
+                media_attempt_warnings.extend(download_warnings)
                 if downloaded:
                     transcript, transcribe_warnings = transcribe_with_whisper(downloaded, tmpdir)
-                    warnings.extend(transcribe_warnings)
+                    media_attempt_warnings.extend(transcribe_warnings)
+                    cleanup_transient_media_file(downloaded, tmpdir)
                     if transcript:
                         content = normalize_space("\n\n".join(part for part in [description, transcript] if part))
                         item["extract_method"] = "yt-dlp download + whisper-cli"
+                        media_path_succeeded = True
+                elif platform_key == "douyin":
+                    if derive_failure_code(media_attempt_warnings) == "auth_required" and can_attempt_douyin_login(request_options):
+                        _, login_warnings = maybe_run_douyin_login(request_options)
+                        media_attempt_warnings.extend(login_warnings)
+                        if not login_warnings:
+                            retry_metadata, retry_meta_warnings = load_yt_metadata(source, request_options)
+                            media_attempt_warnings.extend(retry_meta_warnings)
+                            if retry_metadata:
+                                metadata = retry_metadata
+                                apply_media_metadata(item, metadata)
+                                retry_description = clean_transcript_text(str(metadata.get("description") or ""))
+                                if retry_description:
+                                    description = retry_description
+                            retry_subtitle_text, retry_subtitle_method, retry_subtitle_warnings = fetch_yt_subtitles(
+                                source,
+                                tmpdir,
+                                request_options,
+                            )
+                            media_attempt_warnings.extend(retry_subtitle_warnings)
+                            if retry_subtitle_text:
+                                content = normalize_space(
+                                    "\n\n".join(part for part in [description, retry_subtitle_text] if part)
+                                )
+                                item["extract_method"] = retry_subtitle_method or "yt-dlp subtitles"
+                                media_path_succeeded = True
+                            else:
+                                retry_downloaded, retry_download_warnings = download_media_for_transcription(
+                                    source,
+                                    tmpdir,
+                                    request_options,
+                                )
+                                media_attempt_warnings.extend(retry_download_warnings)
+                                if retry_downloaded:
+                                    transcript, transcribe_warnings = transcribe_with_whisper(retry_downloaded, tmpdir)
+                                    media_attempt_warnings.extend(transcribe_warnings)
+                                    cleanup_transient_media_file(retry_downloaded, tmpdir)
+                                    if transcript:
+                                        content = normalize_space(
+                                            "\n\n".join(part for part in [description, transcript] if part)
+                                        )
+                                        item["extract_method"] = "yt-dlp download + whisper-cli"
+                                        media_path_succeeded = True
+                    if media_path_succeeded:
+                        pass
+                    else:
+                        fallback_payload, fallback_warnings = download_douyin_media_with_playwright(source, tmpdir)
+                        media_attempt_warnings.extend(fallback_warnings)
+                        if fallback_payload:
+                            item["title"] = item["title"] or str(fallback_payload.get("title") or "")
+                            item["author"] = item["author"] or str(fallback_payload.get("author") or "")
+                            item["source_metadata"]["canonical_url"] = str(
+                                fallback_payload.get("canonical_url") or source
+                            )
+                            resolved_url = str(fallback_payload.get("primary_media_url") or "")
+                            if resolved_url:
+                                item["source_metadata"]["resolved_media_url"] = resolved_url
+                                item["source_metadata"]["resolved_media_source"] = str(
+                                    fallback_payload.get("source") or "playwright-network"
+                                )
+                            downloaded_file = str(fallback_payload.get("downloaded_file") or "")
+                            if downloaded_file:
+                                downloaded_path = Path(downloaded_file)
+                                if downloaded_path.exists():
+                                    transcript, transcribe_warnings = transcribe_with_whisper(downloaded_path, tmpdir)
+                                    media_attempt_warnings.extend(transcribe_warnings)
+                                    cleanup_transient_media_file(downloaded_path, tmpdir)
+                                    if transcript:
+                                        content = normalize_space("\n\n".join(
+                                            part for part in [description, transcript] if part
+                                        ))
+                                        item["extract_method"] = "playwright douyin download + whisper-cli"
+                                        media_path_succeeded = True
 
         if not content and description:
             content = description
             item["extract_method"] = item["extract_method"] or "yt-dlp metadata only"
+
+        if not media_path_succeeded:
+            warnings.extend(media_attempt_warnings)
 
     if not content:
         web_text, method, web_warnings = extract_web_text(
@@ -1574,6 +1936,19 @@ def build_item(
             elif not content:
                 warnings.extend(html_warnings)
 
+    if not item["author"] and context_author:
+        item["author"] = context_author
+    if not item["title"] and context_title:
+        item["title"] = context_title
+
+    if not content and normalized_context:
+        fallback_content = build_share_text_fallback_content(normalized_context, max_content_chars)
+        if fallback_content:
+            content = fallback_content
+            warnings.append("平台正文抓取失败，已回退为分享文案摘要。")
+            item["extract_method"] = item["extract_method"] or "share text fallback"
+            item["fallback_only"] = True
+
     if not item["title"]:
         parsed = urlparse(source)
         fallback_title = parsed.netloc or source
@@ -1592,6 +1967,7 @@ def build_item(
 def finalize_item(item: dict[str, object]) -> dict[str, object]:
     content = str(item.get("content") or "")
     warnings = list(item.get("warnings") or [])
+    fallback_only = bool(item.get("fallback_only"))
     if content:
         highlights = rank_sentences(content, max_sentences=3)
         summary = " ".join(highlights) or shorten(content, 220)
@@ -1608,6 +1984,9 @@ def finalize_item(item: dict[str, object]) -> dict[str, object]:
     item["content_chars"] = len(content)
     item["warning_count"] = len(warnings)
     item["status"] = summarize_item_status(item)
+    if fallback_only:
+        item["status"] = "failed"
+        item["failure_code"] = str(item.get("failure_code") or derive_failure_code(warnings))
     if item["status"] != "failed":
         item["failure_code"] = ""
     return item
@@ -1732,6 +2111,216 @@ def render_report(
     return "\n".join(lines).strip() + "\n"
 
 
+def build_obsidian_digest_frontmatter(
+    title: str,
+    generated_at: datetime,
+    run_summary: dict[str, int | str],
+    items: list[dict[str, object]],
+) -> str:
+    platforms = []
+    for item in items:
+        platform_key = str(item.get("platform_key") or "").strip()
+        if platform_key and platform_key not in platforms:
+            platforms.append(platform_key)
+
+    tags = [
+        "content-processor",
+        "digest",
+        f"status/{sanitize_obsidian_tag(str(run_summary['status']))}",
+    ]
+    tags.extend(f"platform/{sanitize_obsidian_tag(platform)}" for platform in platforms[:6])
+    return render_yaml_frontmatter(
+        {
+            "title": title,
+            "type": "content-digest",
+            "created": generated_at.isoformat(timespec="seconds"),
+            "status": run_summary["status"],
+            "item_count": run_summary["item_count"],
+            "success_count": run_summary["success_count"],
+            "partial_count": run_summary["partial_count"],
+            "failed_count": run_summary["failed_count"],
+            "platforms": platforms,
+            "tags": tags,
+        }
+    )
+
+
+def build_obsidian_source_frontmatter(
+    item: dict[str, object],
+    generated_at: datetime,
+) -> str:
+    platform_key = sanitize_obsidian_tag(str(item.get("platform_key") or "web"), "web")
+    tags = [
+        "content-processor",
+        "source",
+        f"platform/{platform_key}",
+        f"status/{sanitize_obsidian_tag(str(item.get('status') or 'unknown'))}",
+    ]
+    return render_yaml_frontmatter(
+        {
+            "title": str(item.get("title") or "未命名"),
+            "type": "content-source",
+            "created": generated_at.isoformat(timespec="seconds"),
+            "platform": str(item.get("platform") or ""),
+            "platform_key": str(item.get("platform_key") or ""),
+            "status": str(item.get("status") or ""),
+            "source_url": str(item.get("source") or ""),
+            "author": str(item.get("author") or ""),
+            "published_at": str(item.get("published_at") or ""),
+            "duration": str(item.get("duration") or ""),
+            "extract_method": str(item.get("extract_method") or ""),
+            "keywords": [str(value) for value in list(item.get("keywords") or [])],
+            "tags": tags,
+        }
+    )
+
+
+def render_obsidian_index_note(
+    title: str,
+    items: list[dict[str, object]],
+    item_note_paths: list[Path],
+    report_analysis: str,
+    report_analysis_method: str,
+    generated_at: datetime,
+) -> str:
+    run_summary = build_run_summary(items)
+    all_text = "\n\n".join(str(item.get("summary") or "") for item in items)
+    overall = " ".join(rank_sentences(all_text, max_sentences=4))
+    if not overall:
+        overall = "已完成链接抓取，但部分来源只拿到了元数据，建议查看各来源告警。"
+    overview_keywords = extract_keywords(all_text, limit=8)
+
+    lines = [
+        build_obsidian_digest_frontmatter(title, generated_at, run_summary, items),
+        "",
+        f"# {title}",
+        "",
+        f"- 生成时间：{generated_at.strftime('%Y-%m-%d %H:%M')}",
+        f"- 处理状态：{run_summary['status']}",
+        f"- 链接数量：{run_summary['item_count']}",
+        f"- 成功：{run_summary['success_count']}",
+        f"- 部分成功：{run_summary['partial_count']}",
+        f"- 失败：{run_summary['failed_count']}",
+    ]
+    if overview_keywords:
+        lines.append(f"- 主题关键词：{', '.join(overview_keywords)}")
+
+    lines.extend(
+        [
+            "",
+            "## 总览",
+            "",
+            report_analysis or overall,
+            "",
+            f"- 总览分析方式：{report_analysis_method}",
+            "",
+            "## 来源清单",
+            "",
+        ]
+    )
+
+    for index, item in enumerate(items, start=1):
+        title_text = str(item.get("title") or "未命名")
+        platform = str(item.get("platform") or "未知平台")
+        author = str(item.get("author") or "未知来源")
+        note_path = item_note_paths[index - 1]
+        lines.append(
+            f"{index}. [{title_text}]({note_path.parent.name}/{note_path.name}) · {platform} · {author} · {item.get('status') or 'unknown'}"
+        )
+
+    lines.extend(["", "## 来源摘要", ""])
+    for index, item in enumerate(items, start=1):
+        title_text = str(item.get("title") or "未命名")
+        note_path = item_note_paths[index - 1]
+        lines.extend(
+            [
+                f"### {index}. {title_text}",
+                "",
+                f"- 来源笔记：[{title_text}]({note_path.parent.name}/{note_path.name})",
+                f"- 平台：{item.get('platform') or '未知平台'}",
+                f"- 原始链接：{item.get('source') or '-'}",
+            ]
+        )
+        if item.get("keywords"):
+            lines.append(f"- 关键词：{', '.join(item['keywords'])}")
+        if item.get("warnings"):
+            lines.append(f"- 告警：{' | '.join(item['warnings'])}")
+        lines.extend(
+            [
+                "",
+                "#### 摘要",
+                "",
+                str(item.get("summary") or ""),
+            ]
+        )
+        if item.get("analysis"):
+            lines.extend(
+                [
+                    "",
+                    "#### 分析",
+                    "",
+                    str(item.get("analysis") or ""),
+                ]
+            )
+        lines.append("")
+
+    return "\n".join(lines).strip() + "\n"
+
+
+def render_obsidian_source_note(
+    item: dict[str, object],
+    digest_note_path: Path,
+    generated_at: datetime,
+) -> str:
+    lines = [
+        build_obsidian_source_frontmatter(item, generated_at),
+        "",
+        f"# {item.get('title') or '未命名'}",
+        "",
+        f"- 批次索引：[{digest_note_path.stem}](../{digest_note_path.name})",
+        f"- 状态：{item.get('status') or 'unknown'}",
+        f"- 平台：{item.get('platform') or '未知平台'}",
+        f"- 原始链接：{item.get('source') or '-'}",
+        f"- 作者/来源：{item.get('author') or '-'}",
+    ]
+    if item.get("published_at"):
+        lines.append(f"- 发布时间：{item['published_at']}")
+    if item.get("duration"):
+        lines.append(f"- 时长：{item['duration']}")
+    if item.get("extract_method"):
+        lines.append(f"- 抽取方式：{item['extract_method']}")
+    if item.get("keywords"):
+        lines.append(f"- 关键词：{', '.join(item['keywords'])}")
+    if item.get("warnings"):
+        lines.append(f"- 告警：{' | '.join(item['warnings'])}")
+
+    lines.extend(["", "## 摘要", "", str(item.get("summary") or "")])
+
+    if item.get("analysis"):
+        lines.extend(
+            [
+                "",
+                "## 分析",
+                "",
+                str(item.get("analysis") or ""),
+                "",
+                f"- 分析方式：{item.get('analysis_method') or '-'}",
+            ]
+        )
+
+    highlights = list(item.get("highlights") or [])
+    if highlights:
+        lines.extend(["", "## 核心信息", ""])
+        for highlight in highlights:
+            lines.append(f"- {highlight}")
+
+    content = str(item.get("content") or "")
+    if content:
+        lines.extend(["", "## 原文摘录", "", render_quote_block(content)])
+
+    return "\n".join(lines).strip() + "\n"
+
+
 def write_item_files(items: list[dict[str, object]], item_dir: Path) -> None:
     item_dir.mkdir(parents=True, exist_ok=True)
     for index, item in enumerate(items, start=1):
@@ -1740,6 +2329,27 @@ def write_item_files(items: list[dict[str, object]], item_dir: Path) -> None:
             json.dumps(item, ensure_ascii=False, indent=2),
             encoding="utf-8",
         )
+
+
+def write_obsidian_item_notes(
+    items: list[dict[str, object]],
+    sources_dir: Path,
+    digest_note_path: Path,
+    generated_at: datetime,
+) -> list[Path]:
+    sources_dir.mkdir(parents=True, exist_ok=True)
+    paths: list[Path] = []
+    for index, item in enumerate(items, start=1):
+        platform_key = sanitize_obsidian_tag(str(item.get("platform_key") or "source"), "source")
+        base = sanitize_filename(str(item.get("title") or item.get("platform") or "source"), default="source")
+        filename = f"{index:02d}_{platform_key}_{base}.md"
+        note_path = sources_dir / filename
+        note_path.write_text(
+            render_obsidian_source_note(item, digest_note_path, generated_at),
+            encoding="utf-8",
+        )
+        paths.append(note_path)
+    return paths
 
 
 def derive_report_title(cli_title: str | None, items: list[dict[str, object]]) -> str:
@@ -1751,6 +2361,17 @@ def derive_report_title(cli_title: str | None, items: list[dict[str, object]]) -
     return "多平台信息汇总"
 
 
+def build_obsidian_output_dir(vault_root: Path, obsidian_folder: str, report_title: str) -> Path:
+    base_dir = vault_root.expanduser()
+    folder_parts = split_obsidian_folder(obsidian_folder)
+    date_dir = base_dir.joinpath(*folder_parts, datetime.now().strftime("%Y-%m-%d"))
+    slug = sanitize_filename(report_title, default="content-report")
+    timestamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+    run_dir = date_dir / f"{timestamp}_{slug}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+    return run_dir
+
+
 def build_output_dir(output_root: Path, report_title: str) -> Path:
     date_dir = output_root / datetime.now().strftime("%Y-%m-%d")
     slug = sanitize_filename(report_title, default="content-report")
@@ -1758,6 +2379,22 @@ def build_output_dir(output_root: Path, report_title: str) -> Path:
     run_dir = date_dir / f"{timestamp}_{slug}"
     run_dir.mkdir(parents=True, exist_ok=True)
     return run_dir
+
+
+def build_output_options(args: argparse.Namespace) -> OutputOptions:
+    obsidian_vault = (args.obsidian_vault or "").strip()
+    obsidian_folder = (args.obsidian_folder or DEFAULT_OBSIDIAN_FOLDER).strip() or DEFAULT_OBSIDIAN_FOLDER
+    mode = args.output_mode
+    if mode == "auto":
+        mode = "obsidian" if obsidian_vault else "desktop"
+    if mode in {"obsidian", "both"} and not obsidian_vault:
+        raise ValueError("Obsidian mode requires --obsidian-vault or CONTENT_PROCESSOR_OBSIDIAN_VAULT.")
+    return OutputOptions(
+        mode=mode,
+        output_root=Path(args.output_root).expanduser(),
+        obsidian_vault=obsidian_vault,
+        obsidian_folder=obsidian_folder,
+    )
 
 
 def build_request_options(args: argparse.Namespace) -> RequestOptions:
@@ -1769,6 +2406,7 @@ def build_request_options(args: argparse.Namespace) -> RequestOptions:
         cookies_file=args.cookies_file or "",
         cookies_from_browser=args.cookies_from_browser or "",
         extra_headers=extra_headers,
+        auto_login_douyin=args.auto_login_douyin,
     )
 
 
@@ -1782,14 +2420,30 @@ def build_analysis_options(args: argparse.Namespace) -> AnalysisOptions:
 
 def parse_args() -> argparse.Namespace:
     parser = argparse.ArgumentParser(
-        description="Process one or more share links and save a desktop report."
+        description="Process one or more share links and save desktop or Obsidian-friendly local notes."
     )
     parser.add_argument("sources", nargs="+", help="URLs, local files, or pasted share text.")
     parser.add_argument("--report-title", help="Custom report title.")
     parser.add_argument(
         "--output-root",
         default=str(DEFAULT_OUTPUT_ROOT),
-        help=f"Desktop output root. Default: {DEFAULT_OUTPUT_ROOT}",
+        help=f"Desktop output root when output-mode is desktop/both. Default: {DEFAULT_OUTPUT_ROOT}",
+    )
+    parser.add_argument(
+        "--output-mode",
+        choices=["auto", "desktop", "obsidian", "both"],
+        default=os.environ.get("CONTENT_PROCESSOR_OUTPUT_MODE", "auto"),
+        help="Output target. auto uses Obsidian when a vault is configured, otherwise desktop.",
+    )
+    parser.add_argument(
+        "--obsidian-vault",
+        default=os.environ.get("CONTENT_PROCESSOR_OBSIDIAN_VAULT", ""),
+        help="Absolute path to an Obsidian vault. Enables Obsidian mode when output-mode is auto.",
+    )
+    parser.add_argument(
+        "--obsidian-folder",
+        default=os.environ.get("CONTENT_PROCESSOR_OBSIDIAN_FOLDER", DEFAULT_OBSIDIAN_FOLDER),
+        help=f"Folder inside the Obsidian vault. Default: {DEFAULT_OBSIDIAN_FOLDER}",
     )
     parser.add_argument(
         "--max-content-chars",
@@ -1824,6 +2478,12 @@ def parse_args() -> argparse.Namespace:
         help="Optional Referer header. Can also be set via CONTENT_PROCESSOR_REFERER.",
     )
     parser.add_argument(
+        "--auto-login-douyin",
+        action=argparse.BooleanOptionalAction,
+        default=os.environ.get("CONTENT_PROCESSOR_AUTO_LOGIN_DOUYIN", "1").lower() not in {"0", "false", "no"},
+        help="Automatically open Douyin QR login once when auth is required, then retry before Playwright fallback.",
+    )
+    parser.add_argument(
         "--analysis-mode",
         choices=["auto", "off", "heuristic", "llm"],
         default=os.environ.get("CONTENT_PROCESSOR_ANALYSIS_MODE", "auto"),
@@ -1847,51 +2507,112 @@ def main() -> int:
     args = parse_args()
     try:
         request_options = build_request_options(args)
+        output_options = build_output_options(args)
     except ValueError as exc:
         print(str(exc), file=sys.stderr)
         return 1
     analysis_options = build_analysis_options(args)
 
-    sources = extract_sources(args.sources)
+    sources = extract_source_inputs(args.sources)
     if not sources:
         print("No valid sources found.", file=sys.stderr)
         return 1
+    request_options = maybe_attach_saved_douyin_auth(sources, request_options)
 
     items: list[dict[str, object]] = []
-    for index, source in enumerate(sources, start=1):
-        log(f"Processing: {source}")
+    for index, source_input in enumerate(sources, start=1):
+        log(f"Processing: {source_input.source}")
         item = build_item(
-            source,
+            source_input.source,
             max_content_chars=args.max_content_chars,
             request_options=request_options,
+            source_context=source_input.context_text,
         )
         item["source_id"] = f"item-{index:02d}"
         items.append(enrich_item_analysis(item, analysis_options))
 
     report_title = derive_report_title(args.report_title, items)
-    output_root = Path(args.output_root).expanduser()
-    run_dir = build_output_dir(output_root, report_title)
-
-    report_md = run_dir / "report.md"
-    report_json = run_dir / "report.json"
-    item_dir = run_dir / "items"
-
-    write_item_files(items, item_dir)
+    generated_at = datetime.now()
     report_analysis, report_analysis_method = build_report_analysis(items, analysis_options)
-    report_md.write_text(
-        render_report(report_title, items, run_dir, report_analysis, report_analysis_method),
-        encoding="utf-8",
-    )
     run_summary = build_run_summary(items)
+
+    desktop_output: dict[str, object] | None = None
+    obsidian_output: dict[str, object] | None = None
+
+    if output_options.mode in {"desktop", "both"}:
+        desktop_run_dir = build_output_dir(output_options.output_root, report_title)
+        desktop_report_md = desktop_run_dir / "report.md"
+        desktop_report_json = desktop_run_dir / "report.json"
+        desktop_item_dir = desktop_run_dir / "items"
+
+        write_item_files(items, desktop_item_dir)
+        desktop_report_md.write_text(
+            render_report(report_title, items, desktop_run_dir, report_analysis, report_analysis_method),
+            encoding="utf-8",
+        )
+        desktop_output = {
+            "mode": "desktop",
+            "output_dir": str(desktop_run_dir),
+            "report_md": str(desktop_report_md),
+            "report_json": str(desktop_report_json),
+            "item_dir": str(desktop_item_dir),
+        }
+
+    if output_options.mode in {"obsidian", "both"}:
+        obsidian_run_dir = build_obsidian_output_dir(
+            Path(output_options.obsidian_vault),
+            output_options.obsidian_folder,
+            report_title,
+        )
+        obsidian_sources_dir = obsidian_run_dir / "sources"
+        obsidian_item_dir = obsidian_run_dir / "items"
+        digest_note_path = obsidian_run_dir / f"{obsidian_run_dir.name}.md"
+
+        source_note_paths = [
+            obsidian_sources_dir / (
+                f"{index:02d}_{sanitize_obsidian_tag(str(item.get('platform_key') or 'source'), 'source')}_"
+                f"{sanitize_filename(str(item.get('title') or item.get('platform') or 'source'), default='source')}.md"
+            )
+            for index, item in enumerate(items, start=1)
+        ]
+
+        digest_note_path.write_text(
+            render_obsidian_index_note(
+                report_title,
+                items,
+                source_note_paths,
+                report_analysis,
+                report_analysis_method,
+                generated_at,
+            ),
+            encoding="utf-8",
+        )
+        write_obsidian_item_notes(items, obsidian_sources_dir, digest_note_path, generated_at)
+        write_item_files(items, obsidian_item_dir)
+
+        obsidian_output = {
+            "mode": "obsidian",
+            "vault_root": str(Path(output_options.obsidian_vault).expanduser()),
+            "vault_folder": output_options.obsidian_folder,
+            "output_dir": str(obsidian_run_dir),
+            "report_md": str(digest_note_path),
+            "report_json": str(obsidian_run_dir / "report.json"),
+            "item_dir": str(obsidian_item_dir),
+            "sources_dir": str(obsidian_sources_dir),
+            "source_notes": [str(path) for path in source_note_paths],
+        }
+
+    primary_output = desktop_output or obsidian_output
 
     payload = {
         "schema_version": REPORT_SCHEMA_VERSION,
         "status": run_summary["status"],
         "report_title": report_title,
-        "generated_at": datetime.now().isoformat(timespec="seconds"),
-        "output_dir": str(run_dir),
-        "report_md": str(report_md),
-        "report_json": str(report_json),
+        "generated_at": generated_at.isoformat(timespec="seconds"),
+        "output_mode": output_options.mode,
+        "output_dir": str(primary_output["output_dir"]),
+        "report_md": str(primary_output["report_md"]),
+        "report_json": str(primary_output["report_json"]),
         "request_options": {
             "cookies_file": request_options.cookies_file,
             "cookies_from_browser": request_options.cookies_from_browser,
@@ -1907,23 +2628,38 @@ def main() -> int:
         "overview_analysis": report_analysis,
         "overview_analysis_method": report_analysis_method,
         "tool_info": build_tool_info(),
-        "sources": sources,
+        "sources": serialize_source_inputs(sources),
+        "outputs": {
+            "desktop": desktop_output,
+            "obsidian": obsidian_output,
+        },
         "items": items,
     }
-    report_json.write_text(json.dumps(payload, ensure_ascii=False, indent=2), encoding="utf-8")
+    if desktop_output:
+        Path(str(desktop_output["report_json"])).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+    if obsidian_output:
+        Path(str(obsidian_output["report_json"])).write_text(
+            json.dumps(payload, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
 
     print(json.dumps(
         {
             "schema_version": REPORT_SCHEMA_VERSION,
             "status": run_summary["status"],
             "report_title": report_title,
-            "output_dir": str(run_dir),
-            "report_md": str(report_md),
-            "report_json": str(report_json),
+            "output_mode": output_options.mode,
+            "output_dir": str(primary_output["output_dir"]),
+            "report_md": str(primary_output["report_md"]),
+            "report_json": str(primary_output["report_json"]),
             "item_count": run_summary["item_count"],
             "success_count": run_summary["success_count"],
             "partial_count": run_summary["partial_count"],
             "failed_count": run_summary["failed_count"],
+            "outputs": payload["outputs"],
         },
         ensure_ascii=False,
         indent=2,
