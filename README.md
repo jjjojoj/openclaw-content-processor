@@ -11,6 +11,13 @@ English | [简体中文](./README.zh-CN.md)
 
 ![Report preview](./assets/report-preview.svg)
 
+## What's New In v2.4.0
+
+- Obsidian export is now a first-class output mode, with YAML frontmatter and one note per source.
+- Douyin handling is more resilient: saved auth -> QR-login retry -> Playwright network interception fallback.
+- Temporary mp4 files used only for transcription are deleted automatically after the transcript is produced.
+- Feishu / Feishu Wiki upload is not supported in the current release. The supported output targets are local desktop reports and Obsidian vaults.
+
 ## Install In OpenClaw
 
 If you want OpenClaw to install and bootstrap this skill for you, copy this prompt:
@@ -39,15 +46,16 @@ It is designed for:
 Most link summarizers either stay inside chat or only handle one platform well. This project is opinionated in a different way:
 
 - local-first: always write notes to disk first, with Obsidian as a first-class target
+- local-only outputs: Feishu / Wiki upload is intentionally out of scope in the current release
 - multi-source: accept one or many links in one run
 - layered fallback: use different extractors for GitHub, static web, dynamic pages, and media
 - automation-friendly: emit both Markdown and structured JSON
 
 ## Validated Status
 
-Current stable release: `v2.3.0`
+Current stable release: `v2.4.0`
 
-Stable-release validation last refreshed on `2026-03-26`:
+Stable-release validation last refreshed on `2026-04-19`:
 
 | Platform | Status | Notes |
 | --- | --- | --- |
@@ -68,7 +76,7 @@ Stable-release validation last refreshed on `2026-03-26`:
 The current stable release is backed by two validation layers:
 
 - installation validation: `bash scripts/bootstrap.sh --install-python`, `bash scripts/bootstrap.sh`, `.venv/bin/python -m py_compile ...`, and `.venv/bin/python -m unittest discover -s tests -v`
-- live-link validation: public GitHub, Zhihu, CSDN, Toutiao, Bilibili, WeChat, Xiaohongshu, X/Twitter, and Weibo samples were checked on `2026-03-26`
+- live-link validation: public GitHub, Zhihu, CSDN, Toutiao, and Bilibili samples were rechecked on `2026-04-19`; representative WeChat, Xiaohongshu, X/Twitter, Weibo, and Douyin flows remain documented in the release validation notes
 
 See [docs/release-validation.md](./docs/release-validation.md) for the latest release checklist, command set, and platform notes.
 

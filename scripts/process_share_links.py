@@ -1529,6 +1529,19 @@ def derive_title_from_content(content: str, fallback: str) -> str:
     return shorten(candidate or fallback, 64)
 
 
+def should_prefer_context_title(current_title: str, platform_key: str) -> bool:
+    normalized = normalize_space(current_title)
+    if not normalized:
+        return True
+    generic_markers = {
+        "douyin": ["抖音精选电脑版", "抖音旗下优质视频平台"],
+        "xiaohongshu": ["小红书", "你的生活指南"],
+        "weibo": ["微博", "随时随地发现新鲜事"],
+    }
+    markers = generic_markers.get(platform_key, [])
+    return any(marker in normalized for marker in markers)
+
+
 def build_local_item_analysis(item: dict[str, object]) -> str:
     platform = str(item.get("platform") or "内容")
     summary = str(item.get("summary") or "").strip()
@@ -1948,6 +1961,10 @@ def build_item(
             warnings.append("平台正文抓取失败，已回退为分享文案摘要。")
             item["extract_method"] = item["extract_method"] or "share text fallback"
             item["fallback_only"] = True
+            if context_title and should_prefer_context_title(str(item.get("title") or ""), platform_key):
+                item["title"] = context_title
+            if context_author and not item.get("author"):
+                item["author"] = context_author
 
     if not item["title"]:
         parsed = urlparse(source)

@@ -1,6 +1,6 @@
 ---
 name: content-processor
-version: 2.3.0
+version: 2.4.0
 description: 处理用户分享的网页、公众号、知乎、CSDN、头条、YouTube、B站、抖音、小红书、微博、X/Twitter 等链接。当用户提到分享链接、多平台链接、内容摘要、汇总报告、整理链接、保存到 Obsidian、保存到桌面时触发。自动抽取内容并生成本地 Markdown + JSON 汇总结果，支持直接写入 Obsidian Vault。
 metadata:
   clawdbot:
@@ -23,6 +23,15 @@ metadata:
 # Content Processor
 
 把用户给出的一个或多个分享链接整理成本地笔记。这个 skill 的主路径是本地落地：先抓取内容，再生成 Markdown + JSON 结果；如果配置了 Obsidian Vault，就直接写成 Obsidian 友好的 frontmatter 笔记。
+
+当前正式发布版：`v2.4.0`
+
+本次发布重点：
+
+- Obsidian 导出成为一级目标，支持 frontmatter 和逐来源 markdown
+- 抖音链路升级为“已有认证 -> 扫码登录 -> Playwright 兜底”
+- 仅用于转写的临时 mp4 会在转写后自动清理
+- 飞书 / 飞书知识库上传不属于当前 skill 的支持范围，输出目标只有桌面本地报告和 Obsidian Vault
 
 ## Quick Start
 
@@ -185,6 +194,7 @@ bash "$SKILL_DIR/scripts/run.sh" "<url1>" "<url2>" ...
 ## Rules
 
 - 本 skill 的默认目标是“整理成本地笔记/报告”，不是只返回聊天里的摘要。
+- 当前不支持飞书 / 飞书知识库上传，请把结果交付到桌面本地目录或 Obsidian Vault。
 - 如果部分链接失败，继续处理其它链接，不要整批放弃。
 - 如果用户只给一个链接，也照样生成桌面报告。
 - 如果用户要求更深度分析，先读取 `report.json` 再继续扩展，而不是重新抓取。

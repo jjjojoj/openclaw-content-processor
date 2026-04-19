@@ -11,6 +11,13 @@
 
 ![报告预览](./assets/report-preview.svg)
 
+## 本次更新（v2.4.0）
+
+- Obsidian 导出正式升为一级输出模式，支持 YAML frontmatter 和逐来源独立笔记。
+- 抖音链路更稳了：已有认证 -> 扫码登录重试 -> Playwright 网络拦截下载兜底。
+- 仅用于转写的临时 mp4 会在转写完成后自动清理，不再堆在输出目录里。
+- 飞书 / 飞书知识库上传不属于当前版本支持范围，当前支持的输出目标只有本地桌面报告和 Obsidian Vault。
+
 ## 用 OpenClaw 安装
 
 如果你想 OpenClaw 直接帮你安装并完成开箱即用配置，可以直接复制这段提示词：
@@ -39,15 +46,16 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 这个项目不是“只在聊天里回一句摘要”的链接工具，而是偏向本地工作流：
 
 - 本地优先：先把内容落到本地笔记，Obsidian 也是一级目标
+- 本地输出范围明确：当前版本不支持飞书 / 飞书知识库上传
 - 多链接批处理：一批链接生成一份报告
 - 分层回退：GitHub、网页、动态页、媒体链接分别走不同 extractor
 - 自动化友好：同时输出 Markdown 和结构化 JSON
 
 ## 当前状态
 
-当前稳定版本：`v2.3.0`
+当前稳定版本：`v2.4.0`
 
-稳定版验证最近一次刷新时间：`2026-03-26`
+稳定版验证最近一次刷新时间：`2026-04-19`
 
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
@@ -68,7 +76,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 当前稳定版由两层验证支撑：
 
 - 安装验证：`bash scripts/bootstrap.sh --install-python`、`bash scripts/bootstrap.sh`、`.venv/bin/python -m py_compile ...`、`.venv/bin/python -m unittest discover -s tests -v`
-- 真实链接验证：`2026-03-26` 已对 GitHub、知乎、CSDN、头条、Bilibili、微信公众号、小红书、X/Twitter、微博做过公开样本回归
+- 真实链接验证：`2026-04-19` 已重新跑 GitHub、知乎、CSDN、头条、Bilibili 公开样本；微信公众号、小红书、X/Twitter、微博、抖音链路继续保留在发布验证说明中
 
 详细结果、命令和平台备注见 [docs/release-validation.zh-CN.md](./docs/release-validation.zh-CN.md)。
 

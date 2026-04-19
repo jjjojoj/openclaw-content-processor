@@ -1,8 +1,8 @@
 # 发布验证说明
 
-最后更新：`2026-03-27`
+最后更新：`2026-04-19`
 
-这个文件记录的是切出 `v2.3.0` 时使用的验证动作，也应该继续作为后续稳定版发布的基线。
+这个文件记录的是切出 `v2.4.0` 时使用的验证动作，也应该继续作为后续稳定版发布的基线。
 
 ## 安装验证
 
@@ -15,12 +15,12 @@ bash scripts/bootstrap.sh
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-`2026-03-26` 本地最新结果：
+`2026-04-19` 本地最新结果：
 
 - `bootstrap.sh --install-python`：通过
 - `bootstrap.sh`：通过
 - `py_compile`：通过
-- `unittest`：通过（`15` 项）
+- `unittest`：通过（`33` 项）
 
 ## 自动化真实链接回归
 
@@ -40,7 +40,7 @@ bash scripts/bootstrap.sh
 
 这套预设的目标，是在不依赖私有 cookie 或付费接口的前提下，验证分层抽取链路本身还能正常工作。
 
-`2026-03-26` 最新结果：通过（`5/5 success`）
+`2026-04-19` 最新结果：通过（`5/5 success`）
 
 | 平台 | 结果 | 抽取路径 |
 | --- | --- | --- |
@@ -52,7 +52,7 @@ bash scripts/bootstrap.sh
 
 ## 手工真实链接回归
 
-除了上面的预设，我们还在 `2026-03-26` 手工验证了几类公开分享链接：
+除了上面的预设，我们还在 `2026-03-26` 和 `2026-04-18` 的加固周期里手工验证了几类公开分享链接：
 
 | 平台 | 结果 | 抽取路径 |
 | --- | --- | --- |
@@ -65,12 +65,14 @@ bash scripts/bootstrap.sh
 | 小红书 | success | `yt-dlp download + whisper-cli` |
 | X/Twitter | success | `yt-dlp download + whisper-cli` |
 | 微博 | partial | 极短视频回退到 `yt-dlp metadata only` |
+| 抖音 | success | `playwright douyin download + whisper-cli` |
 
 说明：
 
 - `partial` 是有意保留的诚实结果，不是静默失败。对极短、少语音或纯噪声视频，元数据往往比错误正文更可靠。
 - 社媒平台的成功率会随着反爬策略变化而波动。
 - 如果业务场景需要更稳定的访问，当前仓库已经支持 cookie、browser session 和 referer。
+- 飞书 / 飞书知识库上传不属于 `v2.4.0` 的发布范围，当前支持的交付目标只有桌面本地结果和 Obsidian 导出。
 
 ## 稳定版发布门槛
 

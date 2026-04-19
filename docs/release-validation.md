@@ -1,8 +1,8 @@
 # Release Validation
 
-Last updated: `2026-03-27`
+Last updated: `2026-04-19`
 
-This document records the checks used to cut `v2.3.0` and should remain the baseline for future stable releases.
+This document records the checks used to cut `v2.4.0` and should remain the baseline for future stable releases.
 
 ## Installation Validation
 
@@ -15,12 +15,12 @@ bash scripts/bootstrap.sh
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Latest local outcome on `2026-03-26`:
+Latest local outcome on `2026-04-19`:
 
 - `bootstrap.sh --install-python`: passed
 - `bootstrap.sh`: passed
 - `py_compile`: passed
-- `unittest`: passed (`15` tests)
+- `unittest`: passed (`33` tests)
 
 ## Automated Live Regression
 
@@ -40,7 +40,7 @@ The `extended` preset covers:
 
 This preset is intended to verify the layered extraction chain without requiring private cookies or paid APIs.
 
-Latest local outcome on `2026-03-26`: passed (`5/5 success`)
+Latest local outcome on `2026-04-19`: passed (`5/5 success`)
 
 | Platform | Result | Extraction path |
 | --- | --- | --- |
@@ -52,7 +52,7 @@ Latest local outcome on `2026-03-26`: passed (`5/5 success`)
 
 ## Manual Real-Link Regression
 
-In addition to the preset above, we manually verified representative public share links on `2026-03-26`:
+In addition to the preset above, we manually verified representative public share links during the `2026-03-26` and `2026-04-18` hardening cycles:
 
 | Platform | Result | Extraction path |
 | --- | --- | --- |
@@ -65,12 +65,14 @@ In addition to the preset above, we manually verified representative public shar
 | Xiaohongshu | success | `yt-dlp download + whisper-cli` |
 | X/Twitter | success | `yt-dlp download + whisper-cli` |
 | Weibo | partial | `yt-dlp metadata only` on a very short clip |
+| Douyin | success | `playwright douyin download + whisper-cli` |
 
 Notes:
 
 - `partial` is an honest outcome, not a silent failure. For short or low-speech clips, metadata may be the only reliable result.
 - Social-platform success rates can change over time because anti-bot behavior changes.
 - Cookie, browser-session, and referer support exist for users who need stronger access stability.
+- Feishu / Feishu Wiki upload is not part of the release gate. Supported delivery targets in `v2.4.0` are local desktop output and Obsidian export.
 
 ## Stable Release Gate
 

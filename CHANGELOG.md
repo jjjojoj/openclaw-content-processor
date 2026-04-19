@@ -6,6 +6,10 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 
 ## [Unreleased]
 
+## [2.4.0] - 2026-04-19
+
+Second stable release focused on local-first notes, Obsidian export, and more reliable Douyin handling.
+
 ### Added
 
 - Obsidian export mode with vault-ready digest notes, YAML frontmatter, and per-source markdown notes
@@ -18,6 +22,7 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - `.env.example` now includes Obsidian output configuration
 - Douyin processing now follows `saved auth -> QR login retry -> Playwright fallback`
 - Temporary mp4 files used only for transcription are deleted after transcription completes
+- Project scope is now explicitly local-first: Feishu / Feishu Wiki upload is not part of the supported output targets
 
 ## [2.3.0] - 2026-03-27
 
