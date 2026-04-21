@@ -754,6 +754,13 @@ def build_obsidian_wikilink(path: Path, vault_root: Path, label: str | None = No
     return f"[[{target}]]"
 
 
+def markdown_entry_key(line: str) -> str:
+    match = re.search(r"\[\[([^\]|]+)", line)
+    if match:
+        return match.group(1).strip()
+    return line.strip()
+
+
 def split_structured_list(text: str) -> list[str]:
     candidate = normalize_space(str(text or ""))
     if not candidate:
@@ -833,8 +840,72 @@ def derive_knowledge_card_title(item: dict[str, object]) -> str:
     return "未命名知识卡片"
 
 
-def make_unique_note_path(directory: Path, title: str, used_names: set[str]) -> Path:
+def read_markdown_frontmatter_value(note_path: Path, key: str) -> str:
+    if not note_path.exists():
+        return ""
+    try:
+        lines = note_path.read_text(encoding="utf-8").splitlines()
+    except Exception:  # noqa: BLE001
+        return ""
+    if not lines or lines[0].strip() != "---":
+        return ""
+
+    for line in lines[1:]:
+        if line.strip() == "---":
+            break
+        if not line.startswith(f"{key}:"):
+            continue
+        raw = line.split(":", 1)[1].strip()
+        if not raw:
+            return ""
+        try:
+            return str(json.loads(raw))
+        except Exception:  # noqa: BLE001
+            return raw.strip().strip('"').strip("'")
+    return ""
+
+
+def existing_note_matches_item(note_path: Path, item: dict[str, object] | None) -> bool:
+    if not item or not note_path.exists():
+        return False
+
+    current_source = normalize_space(str(item.get("source") or ""))
+    if current_source:
+        existing_source = normalize_space(read_markdown_frontmatter_value(note_path, "source_url"))
+        if existing_source and existing_source == current_source:
+            return True
+
+    if str(item.get("platform_key") or "") == "github":
+        current_repo = github_repo_name(item)
+        existing_repo = normalize_space(read_markdown_frontmatter_value(note_path, "github_repo"))
+        if current_repo and existing_repo and existing_repo == current_repo:
+            return True
+
+    return False
+
+
+def find_matching_existing_note_path(directory: Path, title: str, item: dict[str, object] | None) -> Path | None:
+    if not item:
+        return None
     base_name = sanitize_filename(title, default="knowledge-card")
+    for candidate in sorted(directory.glob(f"{base_name}*.md")):
+        if existing_note_matches_item(candidate, item):
+            return candidate
+    return None
+
+
+def make_unique_note_path(
+    directory: Path,
+    title: str,
+    used_names: set[str],
+    item: dict[str, object] | None = None,
+) -> Path:
+    base_name = sanitize_filename(title, default="knowledge-card")
+    matched_path = find_matching_existing_note_path(directory, title, item)
+    if matched_path is not None:
+        used_names.add(matched_path.stem)
+        return matched_path
+
     candidate = base_name
     counter = 2
     while candidate in used_names or (directory / f"{candidate}.md").exists():
@@ -1362,6 +1433,7 @@ def build_github_content(repo_data: dict[str, object], readme_text: str) -> str:
         if normalize_space(str(value))
     ]
     deepwiki_text = normalize_space(str(repo_data.get("_deepwiki_text_excerpt") or ""))
+    deepwiki_available = bool(repo_data.get("deepwiki_available"))
     lines = [
         f"Repository: {repo_data.get('full_name') or ''}",
         f"Description: {repo_data.get('description') or ''}",
@@ -1373,11 +1445,14 @@ def build_github_content(repo_data: dict[str, object], readme_text: str) -> str:
         f"Default branch: {repo_data.get('default_branch') or ''}",
         f"Homepage: {repo_data.get('homepage') or ''}",
         f"Latest update: {repo_data.get('updated_at') or ''}",
-        f"Top-level directories: {', '.join(root_dirs)}",
-        f"Top-level files: {', '.join(root_files)}",
-        f"README headings: {', '.join(readme_headings)}",
     ]
-    if deepwiki_overview or deepwiki_files or deepwiki_text:
+    if root_dirs or root_files:
+        lines.append(f"Top-level directories: {', '.join(root_dirs)}")
+        lines.append(f"Top-level files: {', '.join(root_files)}")
+    lines.append(f"README headings: {', '.join(readme_headings)}")
+
+    if deepwiki_available:
+        # DeepWiki 优先：overview + relevant files + extracted text 放前面，README 截断放后面
         lines.extend([
             f"DeepWiki URL: {repo_data.get('_deepwiki_url') or ''}",
             f"DeepWiki overview: {deepwiki_overview}",
@@ -1386,13 +1461,34 @@ def build_github_content(repo_data: dict[str, object], readme_text: str) -> str:
             "DeepWiki extracted notes",
             "",
             deepwiki_text,
+            "",
+            "README (abbreviated)",
+            "",
+            limit_analysis_text(readme_text.strip(), max_chars=3000),
         ])
-    lines.extend([
-        "",
-        "README",
-        "",
-        readme_text.strip(),
-    ])
+    elif deepwiki_overview or deepwiki_files or deepwiki_text:
+        # DeepWiki 有部分内容但不算完整
+        lines.extend([
+            f"DeepWiki URL: {repo_data.get('_deepwiki_url') or ''}",
+            f"DeepWiki overview: {deepwiki_overview}",
+            f"DeepWiki relevant source files: {', '.join(deepwiki_files)}",
+            "",
+            "DeepWiki extracted notes",
+            "",
+            deepwiki_text,
+            "",
+            "README",
+            "",
+            readme_text.strip(),
+        ])
+    else:
+        # 没有 DeepWiki，GitHub API + README 全量
+        lines.extend([
+            "",
+            "README",
+            "",
+            readme_text.strip(),
+        ])
     return normalize_space("\n".join(line for line in lines if line is not None))
 
 
@@ -1404,58 +1500,84 @@ def extract_github_repo(
     if not repo_ref:
         return {}, None, None, ["无法识别 GitHub 仓库路径。"]
 
-    headers = build_request_headers(source, request_options)
-    headers["Accept"] = "application/vnd.github+json"
-
     owner = repo_ref["owner"]
     repo = repo_ref["repo"]
+
+    # --- 第一步：优先尝试 DeepWiki ---
+    deepwiki_payload = fetch_deepwiki_repo_overview(owner, repo, request_options)
+    deepwiki_available = bool(
+        deepwiki_payload.get("overview")
+        or deepwiki_payload.get("relevant_source_files")
+        or deepwiki_payload.get("text_excerpt")
+    )
+
+    # --- 第二步：DeepWiki 有内容时，只调 GitHub API 取基本元数据（stars/topics/language） ---
+    # --- DeepWiki 没有时，走完整 GitHub API + README 路径 ---
+    headers = build_request_headers(source, request_options)
+    headers["Accept"] = "application/vnd.github+json"
     repo_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}"
     repo_payload, repo_warnings = fetch_json_url(repo_url, headers=headers)
     if not isinstance(repo_payload, dict):
         return {}, None, None, repo_warnings or ["GitHub 仓库元数据请求失败。"]
 
-    readme_text = ""
-    readme_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/readme"
-    readme_payload, readme_warnings = fetch_json_url(readme_url, headers=headers)
-    warnings = list(repo_warnings)
-    warnings.extend(readme_warnings)
-    if isinstance(readme_payload, dict):
-        encoded = str(readme_payload.get("content") or "")
-        if encoded and str(readme_payload.get("encoding") or "").lower() == "base64":
-            decoded = decode_base64_text(encoded)
-            if decoded:
-                readme_text = decoded
-        if not readme_text and readme_payload.get("download_url"):
-            download_headers = build_request_headers(source, request_options)
-            raw_text, raw_warnings = fetch_text_url(str(readme_payload["download_url"]), headers=download_headers)
-            warnings.extend(raw_warnings)
-            readme_text = raw_text or ""
-
-    if not readme_text and repo_ref.get("kind") in {"blob", "raw"} and repo_ref.get("path"):
-        branch = repo_ref.get("branch") or str(repo_payload.get("default_branch") or "main")
-        raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{repo_ref['path']}"
-        raw_headers = build_request_headers(raw_url, request_options)
-        raw_text, raw_warnings = fetch_text_url(raw_url, headers=raw_headers)
-        warnings.extend(raw_warnings)
-        readme_text = raw_text or ""
-
-    root_dirs: list[str] = []
-    root_files: list[str] = []
-    default_branch = str(repo_payload.get("default_branch") or "main")
-    contents_url = (
-        f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents"
-        f"?ref={quote(default_branch, safe='')}"
-    )
-    contents_payload, contents_warnings = fetch_json_url(contents_url, headers=headers)
-    warnings.extend(contents_warnings)
-    root_dirs, root_files = summarize_github_root_entries(contents_payload)
-    repo_payload["_root_dirs"] = root_dirs
-    repo_payload["_root_files"] = root_files
-    deepwiki_payload = fetch_deepwiki_repo_overview(owner, repo, request_options)
+    warnings: list[str] = list(repo_warnings)
     repo_payload["_deepwiki_url"] = deepwiki_payload.get("url") or ""
     repo_payload["_deepwiki_overview"] = deepwiki_payload.get("overview") or ""
     repo_payload["_deepwiki_relevant_source_files"] = deepwiki_payload.get("relevant_source_files") or []
     repo_payload["_deepwiki_text_excerpt"] = deepwiki_payload.get("text_excerpt") or ""
+
+    readme_text = ""
+    root_dirs: list[str] = []
+    root_files: list[str] = []
+
+    if deepwiki_available:
+        # DeepWiki 有内容，只取 README headings 做补充，不拉目录结构
+        readme_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/readme"
+        readme_payload, readme_warnings = fetch_json_url(readme_url, headers=headers)
+        warnings.extend(readme_warnings)
+        if isinstance(readme_payload, dict):
+            encoded = str(readme_payload.get("content") or "")
+            if encoded and str(readme_payload.get("encoding") or "").lower() == "base64":
+                decoded = decode_base64_text(encoded)
+                if decoded:
+                    readme_text = decoded
+    else:
+        # DeepWiki 没有，走完整 GitHub API + README + 目录结构
+        log(f"DeepWiki 无内容，回退到 GitHub API + README: {owner}/{repo}")
+        readme_url = f"{GITHUB_API_BASE}/repos/{owner}/{repo}/readme"
+        readme_payload, readme_warnings = fetch_json_url(readme_url, headers=headers)
+        warnings.extend(readme_warnings)
+        if isinstance(readme_payload, dict):
+            encoded = str(readme_payload.get("content") or "")
+            if encoded and str(readme_payload.get("encoding") or "").lower() == "base64":
+                decoded = decode_base64_text(encoded)
+                if decoded:
+                    readme_text = decoded
+            if not readme_text and readme_payload.get("download_url"):
+                download_headers = build_request_headers(source, request_options)
+                raw_text, raw_warnings = fetch_text_url(str(readme_payload["download_url"]), headers=download_headers)
+                warnings.extend(raw_warnings)
+                readme_text = raw_text or ""
+
+        if not readme_text and repo_ref.get("kind") in {"blob", "raw"} and repo_ref.get("path"):
+            branch = repo_ref.get("branch") or str(repo_payload.get("default_branch") or "main")
+            raw_url = f"https://raw.githubusercontent.com/{owner}/{repo}/{branch}/{repo_ref['path']}"
+            raw_headers = build_request_headers(raw_url, request_options)
+            raw_text, raw_warnings = fetch_text_url(raw_url, headers=raw_headers)
+            warnings.extend(raw_warnings)
+            readme_text = raw_text or ""
+
+        default_branch = str(repo_payload.get("default_branch") or "main")
+        contents_url = (
+            f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents"
+            f"?ref={quote(default_branch, safe='')}"
+        )
+        contents_payload, contents_warnings = fetch_json_url(contents_url, headers=headers)
+        warnings.extend(contents_warnings)
+        root_dirs, root_files = summarize_github_root_entries(contents_payload)
+
+    repo_payload["_root_dirs"] = root_dirs
+    repo_payload["_root_files"] = root_files
     readme_headings = extract_markdown_headings(readme_text)
 
     content = build_github_content(repo_payload, readme_text or "README unavailable.")
@@ -1482,10 +1604,9 @@ def extract_github_repo(
         "deepwiki_url": repo_payload.get("_deepwiki_url") or "",
         "deepwiki_overview": repo_payload.get("_deepwiki_overview") or "",
         "deepwiki_relevant_source_files": repo_payload.get("_deepwiki_relevant_source_files") or [],
+        "deepwiki_available": deepwiki_available,
     }
-    method = "github api + readme"
-    if deepwiki_payload:
-        method += " + deepwiki overview"
+    method = "deepwiki overview" if deepwiki_available else "github api + readme"
     return source_metadata, content, method, warnings
 
 
@@ -3781,7 +3902,7 @@ def write_knowledge_card_notes(
     paths: list[Path] = []
     for item in items:
         note_title = derive_knowledge_card_title(item)
-        note_path = make_unique_note_path(output_dir, note_title, used_names)
+        note_path = make_unique_note_path(output_dir, note_title, used_names, item=item)
         note_path.write_text(
             render_knowledge_card_note(item, note_title, generated_at, vault_root, obsidian_root, note_path),
             encoding="utf-8",
@@ -3919,22 +4040,39 @@ def upsert_markdown_section_bullets(
             next_heading = index
             break
 
-    existing = {
-        line.strip()
-        for line in lines[heading_index + 1:next_heading]
-        if line.strip().startswith("- ")
-    }
-    additions = [line for line in bullet_lines if line.strip() and line.strip() not in existing]
-    if not additions:
+    existing_by_key: dict[str, int] = {}
+    for index in range(heading_index + 1, next_heading):
+        stripped = lines[index].strip()
+        if not stripped.startswith("- "):
+            continue
+        existing_by_key[markdown_entry_key(stripped)] = index
+
+    modified = False
+    additions: list[str] = []
+    for line in bullet_lines:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        key = markdown_entry_key(stripped)
+        existing_index = existing_by_key.get(key)
+        if existing_index is None:
+            additions.append(line)
+            continue
+        if lines[existing_index].strip() != stripped:
+            lines[existing_index] = line
+            modified = True
+
+    if not additions and not modified:
         return
 
     insert_block: list[str] = []
-    if next_heading > 0 and lines[next_heading - 1].strip():
-        insert_block.append("")
-    insert_block.extend(additions)
-    if next_heading < len(lines) and lines[next_heading].strip():
-        insert_block.append("")
-    lines[next_heading:next_heading] = insert_block
+    if additions:
+        if next_heading > 0 and lines[next_heading - 1].strip():
+            insert_block.append("")
+        insert_block.extend(additions)
+        if next_heading < len(lines) and lines[next_heading].strip():
+            insert_block.append("")
+        lines[next_heading:next_heading] = insert_block
     note_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
@@ -3967,19 +4105,36 @@ def upsert_markdown_date_section_entries(
             next_heading = index
             break
 
-    existing = {
-        line.strip()
-        for line in lines[heading_index + 1:next_heading]
-        if line.strip().startswith("- ")
-    }
-    additions = [line for line in entries if line.strip() and line.strip() not in existing]
-    if not additions:
+    existing_by_key: dict[str, int] = {}
+    for index in range(heading_index + 1, next_heading):
+        stripped = lines[index].strip()
+        if not stripped.startswith("- "):
+            continue
+        existing_by_key[markdown_entry_key(stripped)] = index
+
+    modified = False
+    additions: list[str] = []
+    for line in entries:
+        stripped = line.strip()
+        if not stripped:
+            continue
+        key = markdown_entry_key(stripped)
+        existing_index = existing_by_key.get(key)
+        if existing_index is None:
+            additions.append(line)
+            continue
+        if lines[existing_index].strip() != stripped:
+            lines[existing_index] = line
+            modified = True
+
+    if not additions and not modified:
         return
 
-    insert_at = next_heading
-    if insert_at > 0 and lines[insert_at - 1].strip():
-        additions = ["", *additions]
-    lines[insert_at:insert_at] = additions
+    if additions:
+        insert_at = next_heading
+        if insert_at > 0 and lines[insert_at - 1].strip():
+            additions = ["", *additions]
+        lines[insert_at:insert_at] = additions
     note_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 

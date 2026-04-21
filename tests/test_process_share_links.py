@@ -779,6 +779,35 @@ class ContentProcessorTests(unittest.TestCase):
 
         self.assertEqual(path.name, "NousResearch_hermes-agent_2.md")
 
+    def test_make_unique_note_path_reuses_existing_file_for_same_source(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            existing = directory / "NousResearch_hermes-agent.md"
+            existing.write_text(
+                "\n".join([
+                    "---",
+                    'source_url: "https://github.com/NousResearch/hermes-agent"',
+                    'github_repo: "NousResearch/hermes-agent"',
+                    "---",
+                    "",
+                    "# existing",
+                ]) + "\n",
+                encoding="utf-8",
+            )
+
+            path = MODULE.make_unique_note_path(
+                directory,
+                "NousResearch/hermes-agent",
+                set(),
+                item={
+                    "source": "https://github.com/NousResearch/hermes-agent",
+                    "platform_key": "github",
+                    "source_metadata": {"full_name": "NousResearch/hermes-agent"},
+                },
+            )
+
+        self.assertEqual(path.name, "NousResearch_hermes-agent.md")
+
     def test_render_obsidian_index_note_includes_frontmatter_and_links(self) -> None:
         generated_at = MODULE.datetime(2026, 4, 18, 14, 30)
         note = MODULE.render_obsidian_index_note(
@@ -1113,6 +1142,86 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn("## 2026-04-20", content)
         self.assertIn("## 2026-04-21", content)
         self.assertIn("NousResearch/hermes-agent", content)
+
+    def test_update_obsidian_knowledge_index_replaces_existing_entry_for_same_note(self) -> None:
+        first_run = MODULE.datetime(2026, 4, 21, 17, 23)
+        second_run = MODULE.datetime(2026, 4, 21, 18, 45)
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_folder = "Inbox/内容摘要"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+            obsidian_root.mkdir(parents=True, exist_ok=True)
+            note_path = obsidian_root / "2026-04-21" / "NousResearch_hermes-agent.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            note_path.write_text("# hermes\n", encoding="utf-8")
+
+            MODULE.update_obsidian_knowledge_index(
+                vault_root,
+                obsidian_folder,
+                [note_path],
+                [{
+                    "knowledge_card_title": "NousResearch/hermes-agent",
+                    "platform": "GitHub",
+                    "status": "success",
+                }],
+                first_run,
+            )
+            MODULE.update_obsidian_knowledge_index(
+                vault_root,
+                obsidian_folder,
+                [note_path],
+                [{
+                    "knowledge_card_title": "NousResearch/hermes-agent",
+                    "platform": "GitHub",
+                    "status": "success",
+                }],
+                second_run,
+            )
+
+            content = (obsidian_root / "_index.md").read_text(encoding="utf-8")
+
+        self.assertEqual(content.count("NousResearch_hermes-agent|NousResearch/hermes-agent"), 1)
+        self.assertIn("2026-04-21 18:45", content)
+        self.assertNotIn("2026-04-21 17:23", content)
+
+    def test_update_obsidian_github_mocs_replaces_existing_entry_for_same_note(self) -> None:
+        generated_at = MODULE.datetime(2026, 4, 21, 12, 30)
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_folder = "Inbox/内容摘要"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+
+            note_path = obsidian_root / "2026-04-21" / "NousResearch_hermes-agent.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            note_path.write_text("# hermes\n", encoding="utf-8")
+
+            first_item = {
+                "title": "hermes-agent",
+                "platform": "GitHub",
+                "platform_key": "github",
+                "status": "success",
+                "knowledge_card_title": "NousResearch/hermes-agent",
+                "github_categories": ["ai-agent"],
+                "source_metadata": {"full_name": "NousResearch/hermes-agent", "language": "Python", "stargazers_count": 10},
+            }
+            second_item = {
+                "title": "hermes-agent",
+                "platform": "GitHub",
+                "platform_key": "github",
+                "status": "success",
+                "knowledge_card_title": "NousResearch/hermes-agent",
+                "github_categories": ["ai-agent"],
+                "source_metadata": {"full_name": "NousResearch/hermes-agent", "language": "Python", "stargazers_count": 20},
+            }
+
+            MODULE.update_obsidian_github_mocs(vault_root, obsidian_folder, [note_path], [first_item], generated_at)
+            MODULE.update_obsidian_github_mocs(vault_root, obsidian_folder, [note_path], [second_item], generated_at)
+
+            category_note = (obsidian_root / "MOC" / "GitHub" / "AI Agent.md").read_text(encoding="utf-8")
+
+        self.assertEqual(category_note.count("NousResearch_hermes-agent|NousResearch/hermes-agent"), 1)
+        self.assertIn("20 stars", category_note)
+        self.assertNotIn("10 stars", category_note)
 
 if __name__ == "__main__":
     unittest.main()
