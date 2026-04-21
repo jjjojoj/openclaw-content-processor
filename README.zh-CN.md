@@ -97,7 +97,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 | 动态页 fallback | 通过 `Scrapling` 处理更难抓的页面 |
 | 媒体处理链路 | 优先 `yt-dlp` 字幕，无字幕则 `ffmpeg + whisper-cli` |
 | 本地分析 | 生成 summary、highlights、keywords、analysis |
-| 结构化输出 | 保存 `report.md`、`report.json` 和逐项 JSON |
+| 结构化输出 | 桌面模式保存 `report.md` / `report.json`，Obsidian 模式保存知识卡片 markdown 与同级 `*.report.json` |
 | Obsidian 导出 | 默认输出 Vault 友好的 knowledge-card 单笔记，也保留 legacy digest 布局作为兼容模式 |
 | GitHub 知识分支 | 在 Obsidian 中为 GitHub 卡片自动建立 `MOC/GitHub` 总入口和分类导航 |
 | 批处理容错 | 单条失败不会拖垮整批 |
@@ -262,9 +262,8 @@ Obsidian 模式会生成：
 <Vault>/<Folder>/
   _index.md
   YYYY-MM-DD/
-    <timestamp_title>/
-      Agent 边界控制.md
-      report.json
+    Agent 边界控制.md
+    20260420_194000_Agent_边界控制.report.json
 ```
 
 其中默认 knowledge-card 导出包含：
@@ -296,9 +295,9 @@ CLI 结束时会输出一个 JSON 概览，例如：
   "schema_version": "1.0.0",
   "status": "success",
   "report_title": "GitHub validation",
-  "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证",
-  "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/OpenAI Python SDK.md",
-  "report_json": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/report.json"
+  "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20",
+  "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/OpenAI_Python_SDK.md",
+  "report_json": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证.report.json"
 ```
 
 ## 抽取策略

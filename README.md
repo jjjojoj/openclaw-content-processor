@@ -97,7 +97,7 @@ See [docs/release-validation.md](./docs/release-validation.md) for the latest re
 | Dynamic-page fallback | Uses `Scrapling` for harder pages |
 | Media pipeline | Uses `yt-dlp` subtitles first, then `ffmpeg + whisper-cli` |
 | Local analysis | Produces summary, highlights, keywords, and analysis text |
-| Structured output | Saves `report.md`, `report.json`, and per-item JSON files |
+| Structured output | Saves `report.md` / `report.json` in desktop mode, and knowledge-card markdown + sibling `*.report.json` in Obsidian mode |
 | Obsidian export | Writes vault-ready knowledge-card notes by default, with a legacy digest layout available |
 | GitHub knowledge branch | Adds `MOC/GitHub` hub notes and category links for GitHub cards inside Obsidian |
 | Batch-safe execution | One bad source does not kill the whole run |
@@ -262,9 +262,8 @@ Obsidian mode produces:
 <Vault>/<Folder>/
   _index.md
   YYYY-MM-DD/
-    <timestamp_title>/
-      Agent boundary control.md
-      report.json
+    Agent boundary control.md
+    20260420_194000_Agent_boundary_control.report.json
 ```
 
 The default Obsidian note set includes:
@@ -296,9 +295,9 @@ Typical CLI response:
   "schema_version": "1.0.0",
   "status": "success",
   "report_title": "GitHub validation",
-  "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证",
-  "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/OpenAI Python SDK.md",
-  "report_json": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/report.json"
+  "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20",
+  "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/OpenAI_Python_SDK.md",
+  "report_json": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证.report.json"
 ```
 
 ## Extraction Strategy

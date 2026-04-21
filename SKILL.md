@@ -140,9 +140,8 @@ Obsidian 模式默认目录结构（knowledge-card）：
 <Vault>/<Folder>/
   _index.md              ← 全局索引（每次处理自动追加，wikilink 指向 digest）
   YYYY-MM-DD/
-    <timestamp_title>/
-      知识卡片主题名.md        ← 单条来源的知识卡片（type: knowledge-card）
-      report.json
+    知识卡片主题名.md        ← 单条来源的知识卡片（type: knowledge-card）
+    20260420_194000_主题名.report.json
 ```
 
 其中：
@@ -295,9 +294,8 @@ CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
 ├── Inbox/内容摘要/
 │   ├── _index.md            ← 全局索引（按日期，wikilink 指向知识卡片）
 │   └── YYYY-MM-DD/
-│       └── 知识卡片主题名/     ← 一个知识点一个文件夹，一个节点
-│           ├── 知识卡片主题名.md  ← 主笔记（结构化知识卡片）
-│           └── report.json
+│       ├── 知识卡片主题名.md          ← 主笔记（结构化知识卡片）
+│       └── 20260420_194000_主题名.report.json
 ├── MOC/                      ← 主题总览页（积累 3+ 卡片后按需创建）
 │   ├── 识人技巧.md
 │   └── AI 工具箱.md

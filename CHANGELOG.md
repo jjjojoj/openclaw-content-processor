@@ -21,6 +21,7 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 
 - Obsidian output now defaults to knowledge-card mode, while the legacy digest layout remains available via `--obsidian-layout digest`
 - Obsidian output now keeps only `_index.md` as the root entry point; `_log.md` and per-run `items/` JSON folders are no longer generated
+- Knowledge-card notes now write directly into the date folder instead of creating an extra per-note subdirectory; per-run metadata is stored as a sibling `*.report.json`
 - Unit tests now cover chat-completions parsing and knowledge-card note generation
 - Coding-plan analysis now defaults to `glm-4.7`, instead of probing `glm-5` first
 - BigModel / z.ai `chat/completions` summary requests now disable `thinking` by default so `glm-4.7` returns final answer text instead of reasoning-only payloads

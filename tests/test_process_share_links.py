@@ -732,6 +732,16 @@ class ContentProcessorTests(unittest.TestCase):
         ])
         self.assertEqual(title, "NousResearch/hermes-agent")
 
+    def test_make_unique_note_path_avoids_existing_files(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            directory = Path(tmp)
+            existing = directory / "NousResearch_hermes-agent.md"
+            existing.write_text("# existing\n", encoding="utf-8")
+
+            path = MODULE.make_unique_note_path(directory, "NousResearch/hermes-agent", set())
+
+        self.assertEqual(path.name, "NousResearch_hermes-agent_2.md")
+
     def test_render_obsidian_index_note_includes_frontmatter_and_links(self) -> None:
         generated_at = MODULE.datetime(2026, 4, 18, 14, 30)
         note = MODULE.render_obsidian_index_note(

@@ -825,7 +825,7 @@ def make_unique_note_path(directory: Path, title: str, used_names: set[str]) -> 
     base_name = sanitize_filename(title, default="knowledge-card")
     candidate = base_name
     counter = 2
-    while candidate in used_names:
+    while candidate in used_names or (directory / f"{candidate}.md").exists():
         candidate = f"{base_name}_{counter}"
         counter += 1
     used_names.add(candidate)
@@ -3893,6 +3893,23 @@ def build_obsidian_output_dir(vault_root: Path, obsidian_folder: str, report_tit
     return run_dir
 
 
+def build_obsidian_date_dir(vault_root: Path, obsidian_folder: str, generated_at: datetime) -> Path:
+    base_dir = vault_root.expanduser()
+    folder_parts = split_obsidian_folder(obsidian_folder)
+    date_dir = base_dir.joinpath(*folder_parts, generated_at.strftime("%Y-%m-%d"))
+    date_dir.mkdir(parents=True, exist_ok=True)
+    return date_dir
+
+
+def build_obsidian_knowledge_report_json_path(
+    date_dir: Path,
+    report_title: str,
+    generated_at: datetime,
+) -> Path:
+    slug = sanitize_filename(report_title, default="content-report")
+    return date_dir / f"{generated_at.strftime('%Y%m%d_%H%M%S')}_{slug}.report.json"
+
+
 def build_output_dir(output_root: Path, report_title: str) -> Path:
     date_dir = output_root / datetime.now().strftime("%Y-%m-%d")
     slug = sanitize_filename(report_title, default="content-report")
@@ -4098,12 +4115,12 @@ def main() -> int:
     if output_options.mode in {"obsidian", "both"}:
         obsidian_vault_root = Path(output_options.obsidian_vault)
         obsidian_root = build_obsidian_folder_root(obsidian_vault_root, output_options.obsidian_folder)
-        obsidian_run_dir = build_obsidian_output_dir(
-            obsidian_vault_root,
-            output_options.obsidian_folder,
-            report_title,
-        )
         if output_options.obsidian_layout == "digest":
+            obsidian_run_dir = build_obsidian_output_dir(
+                obsidian_vault_root,
+                output_options.obsidian_folder,
+                report_title,
+            )
             obsidian_sources_dir = obsidian_run_dir / "sources"
             digest_note_path = obsidian_run_dir / f"{obsidian_run_dir.name}.md"
 
@@ -4147,11 +4164,21 @@ def main() -> int:
                 generated_at,
             )
         else:
+            obsidian_date_dir = build_obsidian_date_dir(
+                obsidian_vault_root,
+                output_options.obsidian_folder,
+                generated_at,
+            )
             note_paths = write_knowledge_card_notes(
                 items,
-                obsidian_run_dir,
+                obsidian_date_dir,
                 obsidian_vault_root,
                 obsidian_root,
+                generated_at,
+            )
+            knowledge_report_json = build_obsidian_knowledge_report_json_path(
+                obsidian_date_dir,
+                report_title,
                 generated_at,
             )
 
@@ -4160,9 +4187,9 @@ def main() -> int:
                 "layout": "knowledge-card",
                 "vault_root": str(obsidian_vault_root.expanduser()),
                 "vault_folder": output_options.obsidian_folder,
-                "output_dir": str(obsidian_run_dir),
+                "output_dir": str(obsidian_date_dir),
                 "report_md": str(note_paths[0]) if note_paths else "",
-                "report_json": str(obsidian_run_dir / "report.json"),
+                "report_json": str(knowledge_report_json),
                 "sources_dir": "",
                 "source_notes": [str(path) for path in note_paths],
             }
