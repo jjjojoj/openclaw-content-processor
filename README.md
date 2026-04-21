@@ -17,7 +17,7 @@ English | [简体中文](./README.zh-CN.md)
 - `.env` files inside the skill directory are loaded automatically, so local OpenAI-compatible settings can take effect without manual export.
 - Non-OpenAI providers such as GLM / MiniMax can now use `chat/completions` style endpoints, while official OpenAI still uses `responses`.
 - If you already configured `zai` / GLM Coding Plan inside OpenClaw, this skill can now reuse that local provider config instead of maintaining a second key by hand.
-- GitHub repositories now generate repository-specific knowledge cards and are automatically linked into `MOC/GitHub` category branches such as `AI Agent`, `SaaS`, and `FastAPI`.
+- GitHub repositories now generate repository-specific knowledge cards, enrich from DeepWiki overview pages when available, and are automatically linked into `MOC/GitHub` category branches such as `AI Agent`, `SaaS`, and `FastAPI`.
 
 ## What's New In v2.4.0
 
@@ -67,7 +67,7 @@ Stable-release validation last refreshed on `2026-04-19`:
 
 | Platform | Status | Notes |
 | --- | --- | --- |
-| GitHub | Stable | Uses GitHub API + README extraction |
+| GitHub | Stable | Uses GitHub API + README, and supplements with DeepWiki overview when available |
 | Generic web pages | Stable | Main path uses `trafilatura` |
 | WeChat | Stable | Usually succeeds via `Scrapling` |
 | Zhihu / CSDN | Stable | Real links verified |
@@ -92,7 +92,7 @@ See [docs/release-validation.md](./docs/release-validation.md) for the latest re
 
 | Capability | What it does |
 | --- | --- |
-| GitHub extractor | Pulls repo metadata, topics, stars, default branch, and README |
+| GitHub extractor | Pulls repo metadata, topics, stars, default branch, README, and DeepWiki overview context when available |
 | Web extractor | Uses `trafilatura` for article-style pages |
 | Dynamic-page fallback | Uses `Scrapling` for harder pages |
 | Media pipeline | Uses `yt-dlp` subtitles first, then `ffmpeg + whisper-cli` |
@@ -272,6 +272,7 @@ The default Obsidian note set includes:
 - YAML frontmatter for Dataview / filtering / tagging
 - `_index.md` as the vault-folder root entry point
 - GitHub cards automatically link into `MOC/GitHub` and category pages such as `AI Agent`, `SaaS`, `FastAPI`, or `Automation`
+- GitHub cards prefer student-friendly project breakdowns: what problem the repo solves, how the system is layered, which entrypoints matter, and what to read first
 - high-confidence web / GitHub cards stay clean by default; folded raw evidence only appears for fallback / partial captures or transcript-style media
 - no `sources/` directory in the default knowledge-card layout
 
@@ -304,7 +305,7 @@ Typical CLI response:
 
 Different sources use different pipelines on purpose:
 
-- GitHub repositories: `GitHub API + README`
+- GitHub repositories: `GitHub API + README (+ DeepWiki overview when available)`
 - Regular web pages: `trafilatura`
 - Dynamic / anti-bot pages: `Scrapling`
 - Media links: `yt-dlp` subtitles first

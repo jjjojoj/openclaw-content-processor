@@ -411,6 +411,24 @@ class ContentProcessorTests(unittest.TestCase):
         cleaned = MODULE.clean_transcript_text(text)
         self.assertEqual(cleaned, "Have you seen this?")
 
+    def test_extract_deepwiki_overview_and_relevant_source_files(self) -> None:
+        html = """
+        <script type="application/ld+json">
+        {"@type":"TechArticle","headline":"Overview","description":"Hermes Agent is a self-improving AI agent framework."}
+        </script>
+        <details>
+          <summary>Relevant source files</summary>
+          <ul>
+            <li><a href="https://github.com/NousResearch/hermes-agent/blob/abc123/run_agent.py">run_agent.py</a></li>
+            <li><a href="https://github.com/NousResearch/hermes-agent/blob/abc123/gateway/run.py">gateway/run.py</a></li>
+          </ul>
+        </details>
+        """
+        overview = MODULE.extract_deepwiki_overview_description(html)
+        files = MODULE.extract_deepwiki_relevant_source_files(html)
+        self.assertIn("self-improving AI agent framework", overview)
+        self.assertEqual(files, ["run_agent.py", "gateway/run.py"])
+
     def test_build_local_item_analysis_for_github(self) -> None:
         text = MODULE.build_local_item_analysis({
             "platform": "GitHub",
@@ -423,24 +441,27 @@ class ContentProcessorTests(unittest.TestCase):
                 "topics": ["ui", "components"],
                 "root_dirs": ["docs", "src", "examples"],
                 "root_files": ["README.md", "package.json"],
+                "deepwiki_relevant_source_files": ["run_agent.py", "cli.py"],
             },
         })
         self.assertIn("卡片标题：", text)
-        self.assertIn("项目定位：", text)
-        self.assertIn("架构拆解：", text)
+        self.assertIn("项目总览：", text)
+        self.assertIn("系统分层：", text)
+        self.assertIn("运行入口：", text)
         self.assertIn("关键目录/文件：", text)
-        self.assertIn("建议怎么上手：", text)
+        self.assertIn("建议阅读顺序：", text)
         self.assertIn("README.md", text)
 
     def test_parse_analysis_sections_extracts_github_card_fields(self) -> None:
         sections = MODULE.parse_analysis_sections(
             "\n".join([
                 "卡片标题：NousResearch/hermes-agent",
-                "项目定位：一个带学习循环的 Agent 框架。",
+                "项目总览：一个带学习循环的 Agent 框架。",
                 "解决的问题：1) 降低 Agent 落地门槛；2) 统一多平台入口；3) 支持长期运行",
-                "架构拆解：1) Agent 主循环；2) 工具系统；3) 模型适配层",
+                "系统分层：1) Agent 主循环；2) 工具系统；3) 模型适配层",
+                "运行入口：1) CLI；2) Gateway；3) ACP",
                 "关键目录/文件：1) README.md；2) agent/；3) tools/",
-                "建议怎么上手：1) 先看 README；2) 再看 tools；3) 最后看维护状态",
+                "建议阅读顺序：1) 先看 README；2) 再看 tools；3) 最后看维护状态",
                 "分类：AI Agent, Automation",
                 "学习提醒：确认权限边界和动作审计。",
             ])
@@ -448,9 +469,25 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertEqual(sections["card_title"], "NousResearch/hermes-agent")
         self.assertIn("统一多平台入口", sections["scenarios"])
         self.assertIn("工具系统", sections["learning_points"])
+        self.assertIn("Gateway", sections["runtime_modes"])
         self.assertIn("README.md", sections["key_paths"])
         self.assertIn("README", sections["methods"])
         self.assertIn("AI Agent", sections["categories"])
+
+    def test_build_github_key_path_points_prefers_deepwiki_source_files(self) -> None:
+        points = MODULE.build_github_key_path_points({
+            "platform": "GitHub",
+            "platform_key": "github",
+            "source_metadata": {
+                "full_name": "NousResearch/hermes-agent",
+                "root_dirs": ["agent", "tools"],
+                "root_files": ["README.md"],
+                "deepwiki_relevant_source_files": ["run_agent.py", "gateway/run.py"],
+            },
+        })
+        joined = "\n".join(points)
+        self.assertIn("run_agent.py", joined)
+        self.assertIn("gateway/run.py", joined)
 
     def test_finalize_item_for_github_uses_specialized_summary_and_categories(self) -> None:
         item = MODULE.finalize_item({
@@ -857,11 +894,12 @@ class ContentProcessorTests(unittest.TestCase):
             "summary": "NousResearch/hermes-agent 是一个 AI Agent 项目。",
             "analysis": "\n".join([
                 "卡片标题：NousResearch/hermes-agent",
-                "项目定位：一个带学习循环的 AI Agent 框架。",
+                "项目总览：一个带学习循环的 AI Agent 框架。",
                 "解决的问题：1) 降低 Agent 落地门槛；2) 支持长期运行；3) 统一多平台入口",
-                "架构拆解：1) Agent 主循环；2) 工具系统；3) 模型适配层",
-                "关键目录/文件：1) README.md；2) agent/；3) tools/",
-                "建议怎么上手：1) 先看 README；2) 核对 skills 和 cron；3) 再看维护状态",
+                "系统分层：1) Agent 主循环；2) 工具系统；3) 模型适配层",
+                "运行入口：1) CLI；2) Gateway；3) ACP",
+                "关键目录/文件：1) README.md；2) run_agent.py；3) gateway/run.py",
+                "建议阅读顺序：1) 先看 README；2) 核对 skills 和 cron；3) 再看维护状态",
                 "分类：AI Agent, Automation",
                 "学习提醒：确认权限边界和动作审计。",
             ]),
@@ -876,6 +914,7 @@ class ContentProcessorTests(unittest.TestCase):
                 "topics": ["ai-agent", "automation", "discord"],
                 "root_dirs": ["agent", "tools", "web"],
                 "root_files": ["README.md", "run_agent.py"],
+                "deepwiki_relevant_source_files": ["run_agent.py", "gateway/run.py", "cli.py"],
             },
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -897,10 +936,11 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn("GitHub 仓库", content)
         self.assertIn("## 这个项目在解决什么", content)
         self.assertIn("## 系统是怎么拆的", content)
+        self.assertIn("## 运行方式 / 入口", content)
         self.assertIn("## 先看哪些目录 / 文件", content)
         self.assertIn("## 建议怎么上手", content)
         self.assertIn("## 学习提醒", content)
-        self.assertIn("先看 README", content)
+        self.assertIn("README、AGENTS.md", content)
         self.assertIn("README.md", content)
         self.assertNotIn("操作日志", content)
         self.assertNotIn("## 原始转录", content)

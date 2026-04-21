@@ -17,7 +17,7 @@
 - skill 目录下的 `.env` 会自动加载，不需要再手工 `export` 才能让本地配置生效。
 - 对 GLM / MiniMax 这类不支持 Responses API 的服务，现在会优先兼容 `chat/completions`。
 - 如果你已经在 OpenClaw 里配置了 `zai` / GLM Coding Plan，这个 skill 现在也可以直接复用那份本地 provider 配置，不用再单独维护第二份 key。
-- GitHub 仓库现在会生成专门的仓库知识卡片，并自动挂到 Obsidian 里的 `MOC/GitHub` 分支，再细分到 `AI Agent`、`SaaS`、`FastAPI` 等分类页。
+- GitHub 仓库现在会生成专门的仓库知识卡片；在可用时还会补充 DeepWiki overview 作为结构化上下文，并自动挂到 Obsidian 里的 `MOC/GitHub` 分支，再细分到 `AI Agent`、`SaaS`、`FastAPI` 等分类页。
 
 ## 本次更新（v2.4.0）
 
@@ -67,7 +67,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 
 | 平台 | 状态 | 说明 |
 | --- | --- | --- |
-| GitHub | 稳定 | 走 GitHub API + README 专项抽取 |
+| GitHub | 稳定 | 走 GitHub API + README 专项抽取，可用时再补充 DeepWiki overview |
 | 普通网页 | 稳定 | 主链路为 `trafilatura` |
 | 微信公众号 | 稳定 | 通常由 `Scrapling` 处理 |
 | 知乎 / CSDN | 稳定 | 已完成真实链接验证 |
@@ -92,7 +92,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 
 | 能力 | 说明 |
 | --- | --- |
-| GitHub 抽取 | 提取仓库描述、stars、topics、默认分支、README |
+| GitHub 抽取 | 提取仓库描述、stars、topics、默认分支、README，并在可用时补充 DeepWiki overview 上下文 |
 | 网页正文抽取 | 通过 `trafilatura` 获取文章正文 |
 | 动态页 fallback | 通过 `Scrapling` 处理更难抓的页面 |
 | 媒体处理链路 | 优先 `yt-dlp` 字幕，无字幕则 `ffmpeg + whisper-cli` |
@@ -272,6 +272,7 @@ Obsidian 模式会生成：
 - 适合 Dataview / 过滤 / 标签的 YAML frontmatter
 - 位于 Vault 根目录下的 `_index.md`
 - GitHub 卡片会自动接入 `MOC/GitHub` 以及 `AI Agent`、`SaaS`、`FastAPI`、`Automation` 等分类页
+- GitHub 卡片会优先整理成适合学生学习的项目拆解结构：项目解决什么、系统怎么分层、从哪些入口读起
 - 高置信网页 / GitHub 卡片默认不再塞整段原始内容；只有 fallback / 部分成功 / 转写型媒体时才显示折叠证据
 - 默认不再生成 `sources/` 目录
 
@@ -304,7 +305,7 @@ CLI 结束时会输出一个 JSON 概览，例如：
 
 不同来源会走不同管线：
 
-- GitHub 仓库：`GitHub API + README`
+- GitHub 仓库：`GitHub API + README（可用时补充 DeepWiki overview）`
 - 普通网页：`trafilatura`
 - 动态 / 反爬页面：`Scrapling`
 - 媒体链接：优先 `yt-dlp` 字幕
