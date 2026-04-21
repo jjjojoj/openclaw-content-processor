@@ -27,6 +27,7 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - GitHub cards now use the exact repository name as the note title, student-learning sections, repository-specific summaries, method checkpoints, branch tags, and category links instead of generic web-page sentence ranking
 - Knowledge-card notes no longer dump full raw content for high-confidence web / GitHub captures; folded evidence is only shown for lower-confidence fallback cases or transcript-style media
 - Obsidian knowledge indexes now insert new cards under the correct date heading instead of appending entries into the wrong day block
+- Obsidian `_log.md` now uses the same date-grouped one-line entry style as `_index.md`, so historical notes and new ingest logs stay readable
 - README and `.env.example` now clarify that Feishu is unsupported and that `auto` output switches to Obsidian as soon as a vault path is configured
 
 ## [2.4.0] - 2026-04-19

@@ -3653,22 +3653,22 @@ def update_obsidian_log(
     items: list[dict[str, object]],
     generated_at: datetime,
 ) -> None:
-    """追加一条操作记录到 log.md，格式可 grep。"""
+    """Append legacy digest-mode log lines grouped by date."""
     log_path = vault_root.expanduser() / obsidian_folder / "_log.md"
-    statuses = []
+    entries: list[str] = []
     for item in items:
-        p = str(item.get("platform_key") or "web")
-        s = str(item.get("status") or "unknown")
-        t = str(item.get("title") or "未命名")[:60]
-        statuses.append(f"  - {p} | {s} | {t}")
-    entry = (
-        f"## [{generated_at.strftime('%Y-%m-%d')}] ingest | {report_title[:80]}\n"
-        + "\n".join(statuses)
-        + "\n\n"
-    )
+        title = shorten(str(item.get("title") or report_title or "未命名"), 72)
+        platform = str(item.get("platform") or item.get("platform_key") or "未知平台")
+        status = str(item.get("status") or "unknown")
+        entries.append(
+            f"- {generated_at.strftime('%H:%M')} · ingest · {title} · {platform} · {status}"
+        )
+    if not entries:
+        return
+
+    date_heading = f"## {generated_at.strftime('%Y-%m-%d')}"
     if log_path.exists():
-        content = log_path.read_text(encoding="utf-8")
-        log_path.write_text(content + entry, encoding="utf-8")
+        upsert_markdown_date_section_entries(log_path, date_heading, entries)
     else:
         header = (
             "---\n"
@@ -3676,8 +3676,11 @@ def update_obsidian_log(
             f"created: {generated_at.isoformat(timespec='seconds')}\n"
             "---\n\n"
             "# 操作日志\n\n"
+            "记录 content-processor 每次入库或结构调整，便于回看导入时间、来源和状态。\n\n"
+            "---\n\n"
+            f"{date_heading}\n\n"
         )
-        log_path.write_text(header + entry, encoding="utf-8")
+        log_path.write_text(header + "\n".join(entries).rstrip() + "\n", encoding="utf-8")
 
 
 def update_obsidian_knowledge_log(
@@ -3690,22 +3693,22 @@ def update_obsidian_knowledge_log(
 ) -> None:
     obsidian_root = build_obsidian_folder_root(vault_root, obsidian_folder)
     log_path = obsidian_root / "_log.md"
-    statuses = []
+    entries: list[str] = []
     for note_path, item in zip(note_paths, items):
         title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
-        statuses.append(
-            "  - "
+        platform = str(item.get("platform") or item.get("platform_key") or "未知平台")
+        status = str(item.get("status") or "unknown")
+        entries.append(
+            f"- {generated_at.strftime('%H:%M')} · ingest · "
             + f"{build_obsidian_wikilink(note_path, vault_root, title)}"
-            + f" | {item.get('platform_key') or 'web'} | {item.get('status') or 'unknown'}"
+            + f" · {platform} · {status}"
         )
-    entry = (
-        f"## [{generated_at.strftime('%Y-%m-%d')}] ingest | {report_title[:80]}\n"
-        + "\n".join(statuses)
-        + "\n\n"
-    )
+    if not entries:
+        return
+
+    date_heading = f"## {generated_at.strftime('%Y-%m-%d')}"
     if log_path.exists():
-        content = log_path.read_text(encoding="utf-8")
-        log_path.write_text(content + entry, encoding="utf-8")
+        upsert_markdown_date_section_entries(log_path, date_heading, entries)
     else:
         header = (
             "---\n"
@@ -3713,8 +3716,11 @@ def update_obsidian_knowledge_log(
             f"created: {generated_at.isoformat(timespec='seconds')}\n"
             "---\n\n"
             "# 操作日志\n\n"
+            "记录 content-processor 每次入库或结构调整，便于回看导入时间、来源和状态。\n\n"
+            "---\n\n"
+            f"{date_heading}\n\n"
         )
-        log_path.write_text(header + entry, encoding="utf-8")
+        log_path.write_text(header + "\n".join(entries).rstrip() + "\n", encoding="utf-8")
 
 
 def derive_report_title(cli_title: str | None, items: list[dict[str, object]]) -> str:
