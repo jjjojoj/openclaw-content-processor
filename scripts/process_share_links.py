@@ -19,20 +19,144 @@ from html import unescape
 from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from typing import Iterable
+from urllib.error import HTTPError
 from urllib.parse import urlparse
 from urllib.request import Request, urlopen
+
+BOOTSTRAP_SKILL_DIR = Path(__file__).resolve().parent.parent
+FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
+OPENCLAW_CONFIG_DEFAULT = Path.home() / ".openclaw" / "openclaw.json"
+ZAI_CODING_MODEL_CANDIDATES = ("glm-5", "glm-4.7")
+_ZAI_CODING_MODEL_CACHE: dict[tuple[str, str], str | None] = {}
+
+
+def load_local_env(skill_dir: Path) -> None:
+    env_path = skill_dir / ".env"
+    if not env_path.exists():
+        return
+
+    for raw_line in env_path.read_text(encoding="utf-8").splitlines():
+        line = raw_line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        key, value = line.split("=", 1)
+        key = key.strip()
+        value = value.strip()
+        if not key:
+            continue
+        if value and value[0] == value[-1] and value[0] in {"'", '"'}:
+            value = value[1:-1]
+        os.environ.setdefault(key, value)
+
+
+def env_enabled(name: str, default: bool = False) -> bool:
+    raw = os.environ.get(name)
+    if raw is None:
+        return default
+    return raw.strip().lower() not in FALSEY_ENV_VALUES
+
+
+def parse_model_ref(model_ref: str) -> tuple[str, str]:
+    trimmed = (model_ref or "").strip()
+    if not trimmed:
+        return "", ""
+    if "/" not in trimmed:
+        return "", trimmed
+    provider, model_id = trimmed.split("/", 1)
+    return provider.strip().lower(), model_id.strip()
+
+
+def read_openclaw_zai_provider(config_path: Path) -> dict[str, object] | None:
+    try:
+        payload = json.loads(config_path.read_text(encoding="utf-8"))
+    except Exception:  # noqa: BLE001
+        return None
+
+    providers = payload.get("models", {}).get("providers", {})
+    if not isinstance(providers, dict):
+        return None
+    provider = providers.get("zai")
+    if not isinstance(provider, dict):
+        return None
+
+    base_url = str(provider.get("baseUrl") or "").strip()
+    api_key = str(provider.get("apiKey") or "").strip()
+    if not base_url or not api_key:
+        return None
+
+    model_ids: list[str] = []
+    raw_models = provider.get("models")
+    if isinstance(raw_models, list):
+        for raw_model in raw_models:
+            if not isinstance(raw_model, dict):
+                continue
+            model_id = str(raw_model.get("id") or "").strip()
+            if model_id:
+                model_ids.append(model_id)
+
+    return {
+        "base_url": base_url,
+        "api_key": api_key,
+        "model_ids": model_ids,
+    }
+
+
+def choose_openclaw_zai_model_id(model_ids: list[str]) -> str:
+    preferred_ref = os.environ.get("CONTENT_PROCESSOR_OPENCLAW_MODEL_REF", "zai/glm-4.7")
+    provider_id, model_id = parse_model_ref(preferred_ref)
+    if provider_id in {"", "zai"} and model_id and model_id in model_ids:
+        return model_id
+
+    for candidate in ("glm-5", "glm-4.7", "glm-5-turbo", "GLM-5-Turbo"):
+        if candidate in model_ids:
+            return candidate
+
+    for candidate in model_ids:
+        if "flash" not in candidate.lower():
+            return candidate
+
+    return model_ids[0] if model_ids else "glm-4.7"
+
+
+def apply_openclaw_zai_env_defaults() -> None:
+    if not env_enabled("CONTENT_PROCESSOR_USE_OPENCLAW_ZAI", False):
+        return
+
+    config_path = Path(
+        os.environ.get("CONTENT_PROCESSOR_OPENCLAW_CONFIG", str(OPENCLAW_CONFIG_DEFAULT))
+    ).expanduser()
+    if not config_path.exists():
+        return
+
+    provider = read_openclaw_zai_provider(config_path)
+    if not provider:
+        return
+
+    base_url = str(provider["base_url"]).rstrip("/")
+    api_key = str(provider["api_key"])
+    model_id = choose_openclaw_zai_model_id(list(provider.get("model_ids") or []))
+
+    os.environ["OPENAI_API_KEY"] = api_key
+    os.environ["OPENAI_BASE_URL"] = base_url
+    os.environ["CONTENT_PROCESSOR_OPENAI_RESPONSES_URL"] = f"{base_url}/chat/completions"
+    os.environ["CONTENT_PROCESSOR_ANALYSIS_MODEL"] = model_id
+
+
+load_local_env(BOOTSTRAP_SKILL_DIR)
+apply_openclaw_zai_env_defaults()
 
 USER_AGENT = (
     "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) "
     "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/123.0 Safari/537.36"
 )
-SKILL_DIR = Path(__file__).resolve().parent.parent
+SKILL_DIR = BOOTSTRAP_SKILL_DIR
 AUTH_ROOT = SKILL_DIR / "auth"
 DOUYIN_AUTH_DIR = AUTH_ROOT / "douyin"
 DOUYIN_AUTH_COOKIES_FILE = DOUYIN_AUTH_DIR / "cookies.txt"
 DOUYIN_AUTH_SCRIPT = SKILL_DIR / "scripts" / "douyin_auth.py"
 DEFAULT_OUTPUT_ROOT = Path.home() / "Desktop" / "内容摘要"
 DEFAULT_OBSIDIAN_FOLDER = "Inbox/内容摘要"
+DEFAULT_OBSIDIAN_LAYOUT = os.environ.get("CONTENT_PROCESSOR_OBSIDIAN_LAYOUT", "knowledge-card")
 REPORT_SCHEMA_VERSION = "1.0.0"
 ANALYSIS_TEXT_CHAR_LIMIT = 12000
 ANALYSIS_SENTENCE_LIMIT = 200
@@ -122,6 +246,7 @@ class AnalysisOptions:
     mode: str = "auto"
     model: str = DEFAULT_ANALYSIS_MODEL
     timeout: int = 60
+    fail_on_unavailable: bool = False
 
 
 @dataclass(slots=True)
@@ -130,6 +255,7 @@ class OutputOptions:
     output_root: Path = DEFAULT_OUTPUT_ROOT
     obsidian_vault: str = ""
     obsidian_folder: str = DEFAULT_OBSIDIAN_FOLDER
+    obsidian_layout: str = DEFAULT_OBSIDIAN_LAYOUT
 
 
 @dataclass(slots=True)
@@ -547,6 +673,67 @@ def sanitize_obsidian_tag(text: str, default: str = "content") -> str:
 
 def split_obsidian_folder(folder: str) -> list[str]:
     return [part for part in folder.replace("\\", "/").split("/") if part.strip()]
+
+
+def obsidian_note_ref(path: Path, vault_root: Path) -> str:
+    relative = path.expanduser().resolve().relative_to(vault_root.expanduser().resolve())
+    return relative.with_suffix("").as_posix()
+
+
+def build_obsidian_wikilink(path: Path, vault_root: Path, label: str | None = None) -> str:
+    target = obsidian_note_ref(path, vault_root)
+    if label:
+        return f"[[{target}|{label}]]"
+    return f"[[{target}]]"
+
+
+def parse_analysis_sections(text: str) -> dict[str, str]:
+    sections = {
+        "core_value": "",
+        "scenarios": "",
+        "concerns": "",
+    }
+    for line in str(text or "").splitlines():
+        cleaned = line.strip()
+        if not cleaned:
+            continue
+        if cleaned.startswith("核心价值："):
+            sections["core_value"] = normalize_space(cleaned.split("：", 1)[1])
+        elif cleaned.startswith("适用场景："):
+            sections["scenarios"] = normalize_space(cleaned.split("：", 1)[1])
+        elif cleaned.startswith("关注点："):
+            sections["concerns"] = normalize_space(cleaned.split("：", 1)[1])
+    return sections
+
+
+def derive_knowledge_card_title(item: dict[str, object]) -> str:
+    sections = parse_analysis_sections(str(item.get("analysis") or ""))
+    candidates = [
+        sections["core_value"],
+        *(str(value).strip() for value in list(item.get("highlights") or [])[:2]),
+        str(item.get("summary") or "").strip(),
+        str(item.get("title") or "").strip(),
+    ]
+    for candidate in candidates:
+        if not candidate:
+            continue
+        candidate = re.sub(r"^(?:核心价值|适用场景|关注点)[:：]\s*", "", candidate).strip()
+        candidate = re.sub(r"^[>•\-*\d\.\s]+", "", candidate).strip()
+        candidate = candidate.rstrip("。！？!?,，；;：:")
+        if candidate:
+            return shorten(candidate, 28)
+    return "未命名知识卡片"
+
+
+def make_unique_note_path(directory: Path, title: str, used_names: set[str]) -> Path:
+    base_name = sanitize_filename(title, default="knowledge-card")
+    candidate = base_name
+    counter = 2
+    while candidate in used_names:
+        candidate = f"{base_name}_{counter}"
+        counter += 1
+    used_names.add(candidate)
+    return directory / f"{candidate}.md"
 
 
 def yaml_scalar(value: object) -> str:
@@ -1596,29 +1783,221 @@ def extract_response_text(payload: object) -> str:
     return normalize_space("\n".join(chunks))
 
 
-def resolve_openai_responses_url() -> str:
+def extract_chat_completion_text(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return ""
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        return ""
+
+    chunks: list[str] = []
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            continue
+        content = message.get("content")
+        if isinstance(content, str):
+            chunks.append(content)
+            continue
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict) and isinstance(block.get("text"), str):
+                    chunks.append(str(block["text"]))
+    return normalize_space("\n".join(chunks))
+
+
+def describe_chat_completion_empty(payload: object) -> str:
+    if not isinstance(payload, dict):
+        return "LLM 返回为空。"
+
+    error = payload.get("error")
+    if isinstance(error, dict):
+        code = normalize_space(str(error.get("code") or ""))
+        message = normalize_space(str(error.get("message") or ""))
+        summary = " ".join(part for part in [code, message] if part)
+        if summary:
+            return shorten(f"LLM 返回错误载荷: {summary}", 240)
+
+    choices = payload.get("choices")
+    if not isinstance(choices, list):
+        return "LLM 返回为空。"
+
+    finish_reasons: list[str] = []
+    reasoning_only = False
+    for choice in choices:
+        if not isinstance(choice, dict):
+            continue
+        finish_reason = normalize_space(str(choice.get("finish_reason") or ""))
+        if finish_reason:
+            finish_reasons.append(finish_reason)
+        message = choice.get("message")
+        if not isinstance(message, dict):
+            continue
+        reasoning = normalize_space(str(message.get("reasoning_content") or ""))
+        if reasoning:
+            reasoning_only = True
+
+    if reasoning_only:
+        suffix = ""
+        if finish_reasons:
+            suffix = f" finish_reason={','.join(dict.fromkeys(finish_reasons))}。"
+        return (
+            "LLM 仅返回了 reasoning_content，未返回最终正文 content。"
+            "请检查 thinking 配置或输出 token 上限。"
+            f"{suffix}"
+        ).strip()
+    return "LLM 返回为空。"
+
+
+def should_disable_bigmodel_thinking(endpoint: str, api_style: str) -> bool:
+    if api_style != "chat_completions":
+        return False
+    parsed = urlparse(endpoint)
+    host = parsed.netloc.lower()
+    return host in {"open.bigmodel.cn", "api.z.ai"}
+
+
+def resolve_openai_api_endpoint() -> tuple[str, str]:
     explicit = os.environ.get("CONTENT_PROCESSOR_OPENAI_RESPONSES_URL")
     if explicit:
-        return explicit
+        endpoint = explicit.rstrip("/")
+        if "chat/completions" in endpoint:
+            return endpoint, "chat_completions"
+        return endpoint, "responses"
     base_url = os.environ.get("OPENAI_BASE_URL", "https://api.openai.com").rstrip("/")
-    if base_url.endswith("/v1"):
-        return f"{base_url}/responses"
-    return f"{base_url}/v1/responses"
+    parsed = urlparse(base_url)
+    host = parsed.netloc.lower()
+
+    if base_url.endswith("/chat/completions"):
+        return base_url, "chat_completions"
+    if base_url.endswith("/responses"):
+        return base_url, "responses"
+
+    if host in {"api.openai.com", "openai.com"}:
+        if base_url.endswith("/v1"):
+            return f"{base_url}/responses", "responses"
+        return f"{base_url}/v1/responses", "responses"
+
+    if re.search(r"/v\d+$", base_url):
+        return f"{base_url}/chat/completions", "chat_completions"
+    return f"{base_url}/v1/chat/completions", "chat_completions"
 
 
-def request_llm_analysis(prompt: str, analysis_options: AnalysisOptions) -> tuple[str | None, str | None]:
+def probe_chat_completions_model(base_url: str, api_key: str, model_id: str, timeout: int) -> bool:
+    endpoint = base_url.rstrip("/")
+    if not endpoint.endswith("/chat/completions"):
+        endpoint = f"{endpoint}/chat/completions"
+
+    payload = {
+        "model": model_id,
+        "stream": False,
+        "max_tokens": 1,
+        "messages": [{"role": "user", "content": "ping"}],
+    }
+    request = Request(
+        endpoint,
+        data=json.dumps(payload).encode("utf-8"),
+        headers={
+            "Authorization": f"Bearer {api_key}",
+            "Content-Type": "application/json",
+        },
+        method="POST",
+    )
+    try:
+        with urlopen(request, timeout=timeout) as response:
+            response.read()
+            return 200 <= response.getcode() < 300
+    except HTTPError:
+        return False
+    except Exception:  # noqa: BLE001
+        return False
+
+
+def detect_zai_coding_model(base_url: str, api_key: str, timeout: int) -> str | None:
+    normalized = base_url.rstrip("/")
+    if "/api/coding/paas/v4" not in normalized:
+        return None
+
+    cache_key = (normalized, api_key)
+    if cache_key in _ZAI_CODING_MODEL_CACHE:
+        return _ZAI_CODING_MODEL_CACHE[cache_key]
+
+    for candidate in ZAI_CODING_MODEL_CANDIDATES:
+        if probe_chat_completions_model(normalized, api_key, candidate, timeout):
+            _ZAI_CODING_MODEL_CACHE[cache_key] = candidate
+            return candidate
+
+    _ZAI_CODING_MODEL_CACHE[cache_key] = None
+    return None
+
+
+def resolve_effective_analysis_model(
+    requested_model: str,
+    endpoint: str,
+    api_key: str,
+) -> str:
+    model_id = (requested_model or DEFAULT_ANALYSIS_MODEL).strip() or DEFAULT_ANALYSIS_MODEL
+    if not env_enabled("CONTENT_PROCESSOR_AUTO_DETECT_ZAI_MODEL", True):
+        return model_id
+
+    normalized = endpoint.rstrip("/")
+    if normalized.endswith("/chat/completions"):
+        base_url = normalized[: -len("/chat/completions")]
+    elif normalized.endswith("/responses"):
+        base_url = normalized[: -len("/responses")]
+    else:
+        base_url = normalized
+
+    timeout = int(os.environ.get("CONTENT_PROCESSOR_ZAI_PROBE_TIMEOUT", "5"))
+    detected = detect_zai_coding_model(base_url, api_key, timeout)
+    if detected:
+        return detected
+
+    if "/api/coding/paas/v4" in base_url and "flash" in model_id.lower():
+        return "glm-4.7"
+    return model_id
+
+
+def llm_backend_configured() -> bool:
+    return bool(os.environ.get("OPENAI_API_KEY"))
+
+
+def request_llm_analysis(
+    prompt: str,
+    analysis_options: AnalysisOptions,
+) -> tuple[str | None, str | None, str | None]:
     api_key = os.environ.get("OPENAI_API_KEY")
     if not api_key:
-        return None, None
+        return None, None, "未配置可用的 OPENAI_API_KEY / GLM provider。"
 
-    request_body = {
-        "model": analysis_options.model,
-        "input": prompt,
-        "max_output_tokens": 400,
-    }
+    endpoint, api_style = resolve_openai_api_endpoint()
+    effective_model = resolve_effective_analysis_model(analysis_options.model, endpoint, api_key)
+    if api_style == "chat_completions":
+        request_body = {
+            "model": effective_model,
+            "messages": [
+                {
+                    "role": "user",
+                    "content": prompt,
+                }
+            ],
+            "stream": False,
+            "max_tokens": 600,
+            "temperature": 0.3,
+        }
+        if should_disable_bigmodel_thinking(endpoint, api_style):
+            request_body["thinking"] = {"type": "disabled"}
+    else:
+        request_body = {
+            "model": effective_model,
+            "input": prompt,
+            "max_output_tokens": 400,
+        }
     request_data = json.dumps(request_body).encode("utf-8")
     request = Request(
-        resolve_openai_responses_url(),
+        endpoint,
         data=request_data,
         headers={
             "Authorization": f"Bearer {api_key}",
@@ -1629,13 +2008,40 @@ def request_llm_analysis(prompt: str, analysis_options: AnalysisOptions) -> tupl
     try:
         with urlopen(request, timeout=analysis_options.timeout) as response:
             payload = json.loads(response.read().decode("utf-8", errors="replace"))
-    except Exception:  # noqa: BLE001
-        return None, None
+    except HTTPError as exc:
+        error_text = ""
+        try:
+            error_text = exc.read().decode("utf-8", errors="replace")
+        except Exception:  # noqa: BLE001
+            error_text = str(exc)
+        message = normalize_space(error_text or str(exc))
+        return None, None, f"HTTP {exc.code}: {shorten(message or 'LLM request failed.', 240)}"
+    except Exception as exc:  # noqa: BLE001
+        return None, None, shorten(str(exc) or "LLM request failed.", 240)
 
-    text = extract_response_text(payload)
+    if api_style == "chat_completions":
+        text = extract_chat_completion_text(payload)
+        method = f"openai chat.completions ({effective_model})"
+    else:
+        text = extract_response_text(payload)
+        method = f"openai responses ({effective_model})"
     if not text:
-        return None, None
-    return text, f"openai responses ({analysis_options.model})"
+        if api_style == "chat_completions":
+            return None, None, describe_chat_completion_empty(payload)
+        return None, None, "LLM 返回为空。"
+    return text, method, None
+
+
+def verify_analysis_backend(analysis_options: AnalysisOptions) -> str | None:
+    if not analysis_options.fail_on_unavailable:
+        return None
+    _, method, error = request_llm_analysis(
+        "请只回复 OK。",
+        analysis_options,
+    )
+    if method:
+        return None
+    return error or "模型不可用。"
 
 
 def build_item_analysis_prompt(item: dict[str, object]) -> str:
@@ -1667,11 +2073,13 @@ def enrich_item_analysis(item: dict[str, object], analysis_options: AnalysisOpti
 
     if analysis_options.mode in {"auto", "llm"}:
         prompt = build_item_analysis_prompt(item)
-        analysis_text, analysis_method = request_llm_analysis(prompt, analysis_options)
+        analysis_text, analysis_method, analysis_error = request_llm_analysis(prompt, analysis_options)
         if analysis_text and analysis_method:
             item["analysis"] = analysis_text
             item["analysis_method"] = analysis_method
             return item
+        if analysis_options.fail_on_unavailable:
+            raise RuntimeError(f"模型不可用：{analysis_error or 'LLM 分析失败。'}")
 
     item["analysis"] = build_local_item_analysis(item)
     item["analysis_method"] = "local heuristic"
@@ -1720,12 +2128,14 @@ def build_report_analysis(
     analysis_options: AnalysisOptions,
 ) -> tuple[str, str]:
     if analysis_options.mode in {"auto", "llm"}:
-        analysis_text, analysis_method = request_llm_analysis(
+        analysis_text, analysis_method, analysis_error = request_llm_analysis(
             build_report_analysis_prompt(items),
             analysis_options,
         )
         if analysis_text and analysis_method:
             return analysis_text, analysis_method
+        if analysis_options.fail_on_unavailable:
+            raise RuntimeError(f"模型不可用：{analysis_error or '批量总分析失败。'}")
     return build_local_report_analysis(items), "local heuristic"
 
 
@@ -2151,6 +2561,7 @@ def build_obsidian_digest_frontmatter(
             "title": title,
             "type": "content-digest",
             "created": generated_at.isoformat(timespec="seconds"),
+            "digest_date": generated_at.strftime("%Y-%m-%d"),
             "status": run_summary["status"],
             "item_count": run_summary["item_count"],
             "success_count": run_summary["success_count"],
@@ -2178,6 +2589,7 @@ def build_obsidian_source_frontmatter(
             "title": str(item.get("title") or "未命名"),
             "type": "content-source",
             "created": generated_at.isoformat(timespec="seconds"),
+            "digest_date": generated_at.strftime("%Y-%m-%d"),
             "platform": str(item.get("platform") or ""),
             "platform_key": str(item.get("platform_key") or ""),
             "status": str(item.get("status") or ""),
@@ -2190,6 +2602,129 @@ def build_obsidian_source_frontmatter(
             "tags": tags,
         }
     )
+
+
+def build_knowledge_card_frontmatter(
+    item: dict[str, object],
+    generated_at: datetime,
+    note_title: str,
+) -> str:
+    platform_key = sanitize_obsidian_tag(str(item.get("platform_key") or "web"), "web")
+    tags = [
+        "content-processor",
+        "knowledge-card",
+        f"platform/{platform_key}",
+        f"status/{sanitize_obsidian_tag(str(item.get('status') or 'unknown'))}",
+    ]
+    tags.extend(sanitize_obsidian_tag(str(value), "content") for value in list(item.get("keywords") or [])[:6])
+    source = str(item.get("platform") or "内容")
+    author = str(item.get("author") or "").strip()
+    if author and author != source:
+        source = f"{source} @{author}"
+    return render_yaml_frontmatter(
+        {
+            "title": note_title,
+            "type": "knowledge-card",
+            "created": generated_at.isoformat(timespec="seconds"),
+            "digest_date": generated_at.strftime("%Y-%m-%d"),
+            "source": source,
+            "source_url": str(item.get("source") or ""),
+            "platform": str(item.get("platform") or ""),
+            "platform_key": str(item.get("platform_key") or ""),
+            "status": str(item.get("status") or ""),
+            "author": author,
+            "keywords": [str(value) for value in list(item.get("keywords") or [])[:8]],
+            "tags": tags,
+        }
+    )
+
+
+def render_knowledge_card_note(
+    item: dict[str, object],
+    note_title: str,
+    generated_at: datetime,
+    vault_root: Path,
+    obsidian_root: Path,
+    note_path: Path,
+) -> str:
+    sections = parse_analysis_sections(str(item.get("analysis") or ""))
+    lead = sections["core_value"] or str(item.get("summary") or "").strip() or str(item.get("title") or "这条内容值得继续关注。")
+    scenario_text = sections["scenarios"] or "适合先快速消化这条内容的核心观点，再决定是否继续深挖原始链接。"
+    concern_text = sections["concerns"] or "建议结合原始链接和转录内容，核对细节后再作为行动依据。"
+    highlights = [str(value).strip() for value in list(item.get("highlights") or []) if str(value).strip()]
+    if not highlights:
+        summary = str(item.get("summary") or "").strip()
+        if summary:
+            highlights = split_sentences(summary)[:3] or [summary]
+    warnings = [str(value).strip() for value in list(item.get("warnings") or []) if str(value).strip()]
+    content = limit_analysis_text(str(item.get("content") or ""), max_chars=15000)
+    index_link = build_obsidian_wikilink(obsidian_root / "_index.md", vault_root, "内容索引")
+    log_link = build_obsidian_wikilink(obsidian_root / "_log.md", vault_root, "操作日志")
+
+    lines = [
+        build_knowledge_card_frontmatter(item, generated_at, note_title),
+        "",
+        f"# {note_title}",
+        "",
+        f"> {shorten(lead, 180)}",
+        "",
+        f"- 来源：{item.get('platform') or '未知平台'}",
+        f"- 原始链接：{item.get('source') or '-'}",
+        f"- 状态：{item.get('status') or 'unknown'}",
+        f"- 分析方式：{item.get('analysis_method') or '-'}",
+        f"- 索引：{index_link} · {log_link}",
+        "",
+        "## 适用场景",
+        "",
+        f"- {scenario_text}",
+        "",
+        "## 方法 / 判断要点",
+        "",
+    ]
+
+    for index, highlight in enumerate(highlights[:4], start=1):
+        lines.extend(
+            [
+                f"### 要点 {index}",
+                "",
+                f"- {highlight}",
+                "",
+            ]
+        )
+
+    if not highlights:
+        lines.extend(["- 建议先阅读原始链接，再决定是否沉淀为长期知识。", ""])
+
+    lines.extend(["## 注意事项", ""])
+    if warnings:
+        for warning in warnings:
+            lines.append(f"- {warning}")
+    lines.append(f"- {concern_text}")
+
+    if content:
+        lines.extend(
+            [
+                "",
+                "## 原始转录",
+                "",
+                "<details>",
+                f"<summary>展开查看完整转录（{len(content)}字）</summary>",
+                "",
+                content,
+                "",
+                "</details>",
+            ]
+        )
+
+    lines.extend(
+        [
+            "",
+            "---",
+            "",
+            f"**卡片路径**：{build_obsidian_wikilink(note_path, vault_root, note_title)}",
+        ]
+    )
+    return "\n".join(lines).strip() + "\n"
 
 
 def render_obsidian_index_note(
@@ -2241,19 +2776,22 @@ def render_obsidian_index_note(
         platform = str(item.get("platform") or "未知平台")
         author = str(item.get("author") or "未知来源")
         note_path = item_note_paths[index - 1]
+        # 使用 wikilink: [[stem|display]]，让 Obsidian Graph View 识别关系
+        source_stem = note_path.stem
         lines.append(
-            f"{index}. [{title_text}]({note_path.parent.name}/{note_path.name}) · {platform} · {author} · {item.get('status') or 'unknown'}"
+            f"{index}. [[{source_stem}|{title_text}]] · {platform} · {author} · {item.get('status') or 'unknown'}"
         )
 
     lines.extend(["", "## 来源摘要", ""])
     for index, item in enumerate(items, start=1):
         title_text = str(item.get("title") or "未命名")
         note_path = item_note_paths[index - 1]
+        source_stem = note_path.stem
         lines.extend(
             [
                 f"### {index}. {title_text}",
                 "",
-                f"- 来源笔记：[{title_text}]({note_path.parent.name}/{note_path.name})",
+                f"- 来源笔记：[[{source_stem}|{title_text}]]",
                 f"- 平台：{item.get('platform') or '未知平台'}",
                 f"- 原始链接：{item.get('source') or '-'}",
             ]
@@ -2281,6 +2819,13 @@ def render_obsidian_index_note(
             )
         lines.append("")
 
+    # 底部导航：列出所有 source notes 的 wikilink
+    source_links = []
+    for note_path in item_note_paths:
+        source_links.append(f"[[{note_path.stem}]]")
+    if source_links:
+        lines.extend(["---", "", "**来源笔记**：" + " · ".join(source_links)])
+
     return "\n".join(lines).strip() + "\n"
 
 
@@ -2294,7 +2839,8 @@ def render_obsidian_source_note(
         "",
         f"# {item.get('title') or '未命名'}",
         "",
-        f"- 批次索引：[{digest_note_path.stem}](../{digest_note_path.name})",
+        # 使用 wikilink 链接回 digest，让 Graph View 识别关系
+        f"- 批次索引：[[{digest_note_path.stem}]]",
         f"- 状态：{item.get('status') or 'unknown'}",
         f"- 平台：{item.get('platform') or '未知平台'}",
         f"- 原始链接：{item.get('source') or '-'}",
@@ -2335,6 +2881,9 @@ def render_obsidian_source_note(
     if content:
         lines.extend(["", "## 原文摘录", "", render_quote_block(content)])
 
+    # 底部导航：链接回所属 digest
+    lines.extend(["", "---", "", f"**←** [[{digest_note_path.stem}]]"])
+
     return "\n".join(lines).strip() + "\n"
 
 
@@ -2369,6 +2918,179 @@ def write_obsidian_item_notes(
     return paths
 
 
+def build_obsidian_folder_root(vault_root: Path, obsidian_folder: str) -> Path:
+    return vault_root.expanduser().joinpath(*split_obsidian_folder(obsidian_folder))
+
+
+def write_knowledge_card_notes(
+    items: list[dict[str, object]],
+    output_dir: Path,
+    vault_root: Path,
+    obsidian_root: Path,
+    generated_at: datetime,
+) -> list[Path]:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    used_names: set[str] = set()
+    paths: list[Path] = []
+    for item in items:
+        note_title = derive_knowledge_card_title(item)
+        note_path = make_unique_note_path(output_dir, note_title, used_names)
+        note_path.write_text(
+            render_knowledge_card_note(item, note_title, generated_at, vault_root, obsidian_root, note_path),
+            encoding="utf-8",
+        )
+        item["knowledge_card_title"] = note_title
+        item["knowledge_card_note"] = str(note_path)
+        paths.append(note_path)
+    return paths
+
+
+def update_obsidian_index(
+    vault_root: Path,
+    obsidian_folder: str,
+    digest_note_path: Path,
+    items: list[dict[str, object]],
+    generated_at: datetime,
+) -> None:
+    """追加一条记录到 vault 根目录下的 index.md，让 AI 和 Dataview 能快速定位所有内容。"""
+    index_path = vault_root.expanduser() / obsidian_folder / "_index.md"
+    # 构造来源摘要行
+    source_titles = []
+    for item in items:
+        t = str(item.get("title") or "未命名")
+        p = str(item.get("platform") or "")
+        s = str(item.get("status") or "")
+        source_titles.append(f"{t} ({p}, {s})")
+    sources_text = " | ".join(source_titles)
+    entry = (
+        f"- [[{digest_note_path.stem}]] · "
+        f"{generated_at.strftime('%Y-%m-%d %H:%M')} · "
+        f"{len(items)}条来源 · {sources_text}\n"
+    )
+    if index_path.exists():
+        content = index_path.read_text(encoding="utf-8")
+        index_path.write_text(content + entry, encoding="utf-8")
+    else:
+        header = (
+            "---\n"
+            "type: content-index\n"
+            f"created: {generated_at.isoformat(timespec='seconds')}\n"
+            "---\n\n"
+            "# 内容索引\n\n"
+            "所有通过 content-processor 处理的内容汇总。\n\n"
+            "---\n\n"
+        )
+        index_path.write_text(header + entry, encoding="utf-8")
+
+
+def update_obsidian_knowledge_index(
+    vault_root: Path,
+    obsidian_folder: str,
+    note_paths: list[Path],
+    items: list[dict[str, object]],
+    generated_at: datetime,
+) -> None:
+    obsidian_root = build_obsidian_folder_root(vault_root, obsidian_folder)
+    index_path = obsidian_root / "_index.md"
+    entries: list[str] = []
+    for note_path, item in zip(note_paths, items):
+        title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
+        platform = str(item.get("platform") or "未知平台")
+        status = str(item.get("status") or "unknown")
+        entries.append(
+            f"- {build_obsidian_wikilink(note_path, vault_root, title)} · "
+            f"{generated_at.strftime('%Y-%m-%d %H:%M')} · {platform} · {status}"
+        )
+    if not entries:
+        return
+    entry_block = "\n".join(entries) + "\n"
+    if index_path.exists():
+        content = index_path.read_text(encoding="utf-8")
+        index_path.write_text(content + entry_block, encoding="utf-8")
+    else:
+        header = (
+            "---\n"
+            "type: content-index\n"
+            f"created: {generated_at.isoformat(timespec='seconds')}\n"
+            "---\n\n"
+            "# 内容索引\n\n"
+            "所有通过 content-processor 处理的知识卡片汇总。\n\n"
+            "---\n\n"
+        )
+        index_path.write_text(header + entry_block, encoding="utf-8")
+
+
+def update_obsidian_log(
+    vault_root: Path,
+    obsidian_folder: str,
+    report_title: str,
+    items: list[dict[str, object]],
+    generated_at: datetime,
+) -> None:
+    """追加一条操作记录到 log.md，格式可 grep。"""
+    log_path = vault_root.expanduser() / obsidian_folder / "_log.md"
+    statuses = []
+    for item in items:
+        p = str(item.get("platform_key") or "web")
+        s = str(item.get("status") or "unknown")
+        t = str(item.get("title") or "未命名")[:60]
+        statuses.append(f"  - {p} | {s} | {t}")
+    entry = (
+        f"## [{generated_at.strftime('%Y-%m-%d')}] ingest | {report_title[:80]}\n"
+        + "\n".join(statuses)
+        + "\n\n"
+    )
+    if log_path.exists():
+        content = log_path.read_text(encoding="utf-8")
+        log_path.write_text(content + entry, encoding="utf-8")
+    else:
+        header = (
+            "---\n"
+            "type: content-log\n"
+            f"created: {generated_at.isoformat(timespec='seconds')}\n"
+            "---\n\n"
+            "# 操作日志\n\n"
+        )
+        log_path.write_text(header + entry, encoding="utf-8")
+
+
+def update_obsidian_knowledge_log(
+    vault_root: Path,
+    obsidian_folder: str,
+    report_title: str,
+    note_paths: list[Path],
+    items: list[dict[str, object]],
+    generated_at: datetime,
+) -> None:
+    obsidian_root = build_obsidian_folder_root(vault_root, obsidian_folder)
+    log_path = obsidian_root / "_log.md"
+    statuses = []
+    for note_path, item in zip(note_paths, items):
+        title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
+        statuses.append(
+            "  - "
+            + f"{build_obsidian_wikilink(note_path, vault_root, title)}"
+            + f" | {item.get('platform_key') or 'web'} | {item.get('status') or 'unknown'}"
+        )
+    entry = (
+        f"## [{generated_at.strftime('%Y-%m-%d')}] ingest | {report_title[:80]}\n"
+        + "\n".join(statuses)
+        + "\n\n"
+    )
+    if log_path.exists():
+        content = log_path.read_text(encoding="utf-8")
+        log_path.write_text(content + entry, encoding="utf-8")
+    else:
+        header = (
+            "---\n"
+            "type: content-log\n"
+            f"created: {generated_at.isoformat(timespec='seconds')}\n"
+            "---\n\n"
+            "# 操作日志\n\n"
+        )
+        log_path.write_text(header + entry, encoding="utf-8")
+
+
 def derive_report_title(cli_title: str | None, items: list[dict[str, object]]) -> str:
     if cli_title:
         return cli_title
@@ -2399,9 +3121,10 @@ def build_output_dir(output_root: Path, report_title: str) -> Path:
 
 
 def build_output_options(args: argparse.Namespace) -> OutputOptions:
-    obsidian_vault = (args.obsidian_vault or "").strip()
-    obsidian_folder = (args.obsidian_folder or DEFAULT_OBSIDIAN_FOLDER).strip() or DEFAULT_OBSIDIAN_FOLDER
-    mode = args.output_mode
+    obsidian_vault = (getattr(args, "obsidian_vault", "") or "").strip()
+    obsidian_folder = (getattr(args, "obsidian_folder", DEFAULT_OBSIDIAN_FOLDER) or DEFAULT_OBSIDIAN_FOLDER).strip() or DEFAULT_OBSIDIAN_FOLDER
+    obsidian_layout = (getattr(args, "obsidian_layout", DEFAULT_OBSIDIAN_LAYOUT) or DEFAULT_OBSIDIAN_LAYOUT).strip() or DEFAULT_OBSIDIAN_LAYOUT
+    mode = getattr(args, "output_mode", "desktop")
     if mode == "auto":
         mode = "obsidian" if obsidian_vault else "desktop"
     if mode in {"obsidian", "both"} and not obsidian_vault:
@@ -2411,6 +3134,7 @@ def build_output_options(args: argparse.Namespace) -> OutputOptions:
         output_root=Path(args.output_root).expanduser(),
         obsidian_vault=obsidian_vault,
         obsidian_folder=obsidian_folder,
+        obsidian_layout=obsidian_layout,
     )
 
 
@@ -2428,10 +3152,13 @@ def build_request_options(args: argparse.Namespace) -> RequestOptions:
 
 
 def build_analysis_options(args: argparse.Namespace) -> AnalysisOptions:
+    mode = args.analysis_mode
+    fail_on_unavailable = mode == "llm" or (mode == "auto" and llm_backend_configured())
     return AnalysisOptions(
-        mode=args.analysis_mode,
+        mode=mode,
         model=args.analysis_model or DEFAULT_ANALYSIS_MODEL,
         timeout=args.analysis_timeout,
+        fail_on_unavailable=fail_on_unavailable,
     )
 
 
@@ -2461,6 +3188,12 @@ def parse_args() -> argparse.Namespace:
         "--obsidian-folder",
         default=os.environ.get("CONTENT_PROCESSOR_OBSIDIAN_FOLDER", DEFAULT_OBSIDIAN_FOLDER),
         help=f"Folder inside the Obsidian vault. Default: {DEFAULT_OBSIDIAN_FOLDER}",
+    )
+    parser.add_argument(
+        "--obsidian-layout",
+        choices=["knowledge-card", "digest"],
+        default=os.environ.get("CONTENT_PROCESSOR_OBSIDIAN_LAYOUT", DEFAULT_OBSIDIAN_LAYOUT),
+        help="Obsidian note layout. knowledge-card is the default local knowledge workflow.",
     )
     parser.add_argument(
         "--max-content-chars",
@@ -2529,6 +3262,10 @@ def main() -> int:
         print(str(exc), file=sys.stderr)
         return 1
     analysis_options = build_analysis_options(args)
+    backend_error = verify_analysis_backend(analysis_options)
+    if backend_error:
+        print(f"模型不可用：{backend_error}", file=sys.stderr)
+        return 1
 
     sources = extract_source_inputs(args.sources)
     if not sources:
@@ -2536,21 +3273,25 @@ def main() -> int:
         return 1
     request_options = maybe_attach_saved_douyin_auth(sources, request_options)
 
-    items: list[dict[str, object]] = []
-    for index, source_input in enumerate(sources, start=1):
-        log(f"Processing: {source_input.source}")
-        item = build_item(
-            source_input.source,
-            max_content_chars=args.max_content_chars,
-            request_options=request_options,
-            source_context=source_input.context_text,
-        )
-        item["source_id"] = f"item-{index:02d}"
-        items.append(enrich_item_analysis(item, analysis_options))
+    try:
+        items: list[dict[str, object]] = []
+        for index, source_input in enumerate(sources, start=1):
+            log(f"Processing: {source_input.source}")
+            item = build_item(
+                source_input.source,
+                max_content_chars=args.max_content_chars,
+                request_options=request_options,
+                source_context=source_input.context_text,
+            )
+            item["source_id"] = f"item-{index:02d}"
+            items.append(enrich_item_analysis(item, analysis_options))
 
-    report_title = derive_report_title(args.report_title, items)
-    generated_at = datetime.now()
-    report_analysis, report_analysis_method = build_report_analysis(items, analysis_options)
+        report_title = derive_report_title(args.report_title, items)
+        generated_at = datetime.now()
+        report_analysis, report_analysis_method = build_report_analysis(items, analysis_options)
+    except RuntimeError as exc:
+        print(str(exc), file=sys.stderr)
+        return 1
     run_summary = build_run_summary(items)
 
     desktop_output: dict[str, object] | None = None
@@ -2576,48 +3317,104 @@ def main() -> int:
         }
 
     if output_options.mode in {"obsidian", "both"}:
+        obsidian_vault_root = Path(output_options.obsidian_vault)
+        obsidian_root = build_obsidian_folder_root(obsidian_vault_root, output_options.obsidian_folder)
         obsidian_run_dir = build_obsidian_output_dir(
-            Path(output_options.obsidian_vault),
+            obsidian_vault_root,
             output_options.obsidian_folder,
             report_title,
         )
-        obsidian_sources_dir = obsidian_run_dir / "sources"
         obsidian_item_dir = obsidian_run_dir / "items"
-        digest_note_path = obsidian_run_dir / f"{obsidian_run_dir.name}.md"
 
-        source_note_paths = [
-            obsidian_sources_dir / (
-                f"{index:02d}_{sanitize_obsidian_tag(str(item.get('platform_key') or 'source'), 'source')}_"
-                f"{sanitize_filename(str(item.get('title') or item.get('platform') or 'source'), default='source')}.md"
+        if output_options.obsidian_layout == "digest":
+            obsidian_sources_dir = obsidian_run_dir / "sources"
+            digest_note_path = obsidian_run_dir / f"{obsidian_run_dir.name}.md"
+
+            source_note_paths = [
+                obsidian_sources_dir / (
+                    f"{index:02d}_{sanitize_obsidian_tag(str(item.get('platform_key') or 'source'), 'source')}_"
+                    f"{sanitize_filename(str(item.get('title') or item.get('platform') or 'source'), default='source')}.md"
+                )
+                for index, item in enumerate(items, start=1)
+            ]
+
+            digest_note_path.write_text(
+                render_obsidian_index_note(
+                    report_title,
+                    items,
+                    source_note_paths,
+                    report_analysis,
+                    report_analysis_method,
+                    generated_at,
+                ),
+                encoding="utf-8",
             )
-            for index, item in enumerate(items, start=1)
-        ]
+            write_obsidian_item_notes(items, obsidian_sources_dir, digest_note_path, generated_at)
+            write_item_files(items, obsidian_item_dir)
 
-        digest_note_path.write_text(
-            render_obsidian_index_note(
+            obsidian_output = {
+                "mode": "obsidian",
+                "layout": "digest",
+                "vault_root": str(obsidian_vault_root.expanduser()),
+                "vault_folder": output_options.obsidian_folder,
+                "output_dir": str(obsidian_run_dir),
+                "report_md": str(digest_note_path),
+                "report_json": str(obsidian_run_dir / "report.json"),
+                "item_dir": str(obsidian_item_dir),
+                "sources_dir": str(obsidian_sources_dir),
+                "source_notes": [str(path) for path in source_note_paths],
+            }
+            update_obsidian_index(
+                obsidian_vault_root,
+                output_options.obsidian_folder,
+                digest_note_path,
+                items,
+                generated_at,
+            )
+            update_obsidian_log(
+                obsidian_vault_root,
+                output_options.obsidian_folder,
                 report_title,
                 items,
-                source_note_paths,
-                report_analysis,
-                report_analysis_method,
                 generated_at,
-            ),
-            encoding="utf-8",
-        )
-        write_obsidian_item_notes(items, obsidian_sources_dir, digest_note_path, generated_at)
-        write_item_files(items, obsidian_item_dir)
+            )
+        else:
+            note_paths = write_knowledge_card_notes(
+                items,
+                obsidian_run_dir,
+                obsidian_vault_root,
+                obsidian_root,
+                generated_at,
+            )
+            write_item_files(items, obsidian_item_dir)
 
-        obsidian_output = {
-            "mode": "obsidian",
-            "vault_root": str(Path(output_options.obsidian_vault).expanduser()),
-            "vault_folder": output_options.obsidian_folder,
-            "output_dir": str(obsidian_run_dir),
-            "report_md": str(digest_note_path),
-            "report_json": str(obsidian_run_dir / "report.json"),
-            "item_dir": str(obsidian_item_dir),
-            "sources_dir": str(obsidian_sources_dir),
-            "source_notes": [str(path) for path in source_note_paths],
-        }
+            obsidian_output = {
+                "mode": "obsidian",
+                "layout": "knowledge-card",
+                "vault_root": str(obsidian_vault_root.expanduser()),
+                "vault_folder": output_options.obsidian_folder,
+                "output_dir": str(obsidian_run_dir),
+                "report_md": str(note_paths[0]) if note_paths else "",
+                "report_json": str(obsidian_run_dir / "report.json"),
+                "item_dir": str(obsidian_item_dir),
+                "sources_dir": "",
+                "source_notes": [str(path) for path in note_paths],
+            }
+            update_obsidian_knowledge_index(
+                obsidian_vault_root,
+                output_options.obsidian_folder,
+                note_paths,
+                items,
+                generated_at,
+            )
+            update_obsidian_knowledge_log(
+                obsidian_vault_root,
+                output_options.obsidian_folder,
+                report_title,
+                note_paths,
+                items,
+                generated_at,
+            )
 
     primary_output = desktop_output or obsidian_output
 

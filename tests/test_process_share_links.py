@@ -138,6 +138,161 @@ class ContentProcessorTests(unittest.TestCase):
         with self.assertRaises(ValueError):
             MODULE.parse_header_values(["invalid-header"])
 
+    def test_resolve_openai_api_endpoint_prefers_chat_completions_for_non_openai_base(self) -> None:
+        with mock.patch.dict(
+            MODULE.os.environ,
+            {
+                "OPENAI_BASE_URL": "https://open.bigmodel.cn/api/paas/v4",
+                "CONTENT_PROCESSOR_OPENAI_RESPONSES_URL": "",
+            },
+            clear=False,
+        ):
+            endpoint, api_style = MODULE.resolve_openai_api_endpoint()
+        self.assertEqual(endpoint, "https://open.bigmodel.cn/api/paas/v4/chat/completions")
+        self.assertEqual(api_style, "chat_completions")
+
+    def test_apply_openclaw_zai_env_defaults_uses_openclaw_provider_when_enabled(self) -> None:
+        with tempfile.TemporaryDirectory() as tmp:
+            config_path = Path(tmp) / "openclaw.json"
+            config_path.write_text(
+                MODULE.json.dumps(
+                    {
+                        "models": {
+                            "providers": {
+                                "zai": {
+                                    "baseUrl": "https://open.bigmodel.cn/api/coding/paas/v4",
+                                    "apiKey": "openclaw-zai-key",
+                                    "models": [
+                                        {"id": "glm-5"},
+                                        {"id": "glm-4.7"},
+                                        {"id": "glm-4.7-flash"},
+                                    ],
+                                }
+                            }
+                        }
+                    },
+                    ensure_ascii=False,
+                ),
+                encoding="utf-8",
+            )
+            with mock.patch.dict(
+                MODULE.os.environ,
+                {
+                    "CONTENT_PROCESSOR_USE_OPENCLAW_ZAI": "1",
+                    "CONTENT_PROCESSOR_OPENCLAW_CONFIG": str(config_path),
+                    "CONTENT_PROCESSOR_OPENCLAW_MODEL_REF": "zai/glm-4.7",
+                    "OPENAI_API_KEY": "",
+                    "OPENAI_BASE_URL": "",
+                    "CONTENT_PROCESSOR_OPENAI_RESPONSES_URL": "",
+                    "CONTENT_PROCESSOR_ANALYSIS_MODEL": "",
+                },
+                clear=False,
+            ):
+                MODULE.apply_openclaw_zai_env_defaults()
+                self.assertEqual(MODULE.os.environ["OPENAI_API_KEY"], "openclaw-zai-key")
+                self.assertEqual(
+                    MODULE.os.environ["OPENAI_BASE_URL"],
+                    "https://open.bigmodel.cn/api/coding/paas/v4",
+                )
+                self.assertEqual(
+                    MODULE.os.environ["CONTENT_PROCESSOR_OPENAI_RESPONSES_URL"],
+                    "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+                )
+                self.assertEqual(MODULE.os.environ["CONTENT_PROCESSOR_ANALYSIS_MODEL"], "glm-4.7")
+
+    def test_resolve_effective_analysis_model_prefers_detected_zai_coding_model(self) -> None:
+        with mock.patch.object(MODULE, "detect_zai_coding_model", return_value="glm-5"):
+            model_id = MODULE.resolve_effective_analysis_model(
+                "glm-4.7-flash",
+                "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+                "test-key",
+            )
+        self.assertEqual(model_id, "glm-5")
+
+    def test_resolve_effective_analysis_model_falls_back_from_flash_on_coding_endpoint(self) -> None:
+        with mock.patch.object(MODULE, "detect_zai_coding_model", return_value=None):
+            model_id = MODULE.resolve_effective_analysis_model(
+                "glm-4.7-flash",
+                "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+                "test-key",
+            )
+        self.assertEqual(model_id, "glm-4.7")
+
+    def test_request_llm_analysis_supports_chat_completions_payload(self) -> None:
+        payload = {
+            "choices": [
+                {
+                    "message": {
+                        "content": "核心价值：更适合做知识卡片。\n适用场景：适合整理复杂分享内容。\n关注点：先核对术语和专有名词。"
+                    }
+                }
+            ]
+        }
+        response = mock.MagicMock()
+        response.read.return_value = MODULE.json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        with (
+            mock.patch.dict(
+                MODULE.os.environ,
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "OPENAI_BASE_URL": "https://open.bigmodel.cn/api/paas/v4",
+                    "CONTENT_PROCESSOR_OPENAI_RESPONSES_URL": "",
+                },
+                clear=False,
+            ),
+            mock.patch.object(MODULE, "urlopen", return_value=response) as mocked_urlopen,
+        ):
+            text, method, error = MODULE.request_llm_analysis(
+                "请输出三行内容。",
+                MODULE.AnalysisOptions(mode="llm", model="glm-4-flash", timeout=5),
+            )
+            request = mocked_urlopen.call_args.args[0]
+        request_payload = MODULE.json.loads(request.data.decode("utf-8"))
+        self.assertIn("核心价值：更适合做知识卡片。", text or "")
+        self.assertEqual(method, "openai chat.completions (glm-4-flash)")
+        self.assertIsNone(error)
+        self.assertEqual(request_payload["thinking"], {"type": "disabled"})
+        self.assertFalse(request_payload["stream"])
+
+    def test_request_llm_analysis_reports_reasoning_only_chat_completion(self) -> None:
+        payload = {
+            "choices": [
+                {
+                    "finish_reason": "length",
+                    "message": {
+                        "content": "",
+                        "reasoning_content": "这是一段很长的推理过程，但没有最终回答。",
+                    },
+                }
+            ]
+        }
+        response = mock.MagicMock()
+        response.read.return_value = MODULE.json.dumps(payload, ensure_ascii=False).encode("utf-8")
+        response.__enter__.return_value = response
+        response.__exit__.return_value = False
+        with (
+            mock.patch.dict(
+                MODULE.os.environ,
+                {
+                    "OPENAI_API_KEY": "test-key",
+                    "OPENAI_BASE_URL": "https://open.bigmodel.cn/api/paas/v4",
+                    "CONTENT_PROCESSOR_OPENAI_RESPONSES_URL": "",
+                },
+                clear=False,
+            ),
+            mock.patch.object(MODULE, "urlopen", return_value=response),
+        ):
+            text, method, error = MODULE.request_llm_analysis(
+                "请输出三行内容。",
+                MODULE.AnalysisOptions(mode="llm", model="glm-4.7", timeout=5),
+            )
+        self.assertIsNone(text)
+        self.assertIsNone(method)
+        self.assertIn("reasoning_content", error or "")
+        self.assertIn("finish_reason=length", error or "")
+
     def test_parse_github_source_handles_blob_url(self) -> None:
         parsed = MODULE.parse_github_source("https://github.com/openai/openai-python/blob/main/README.md")
         self.assertEqual(parsed["owner"], "openai")
@@ -252,6 +407,49 @@ class ContentProcessorTests(unittest.TestCase):
             enriched = MODULE.enrich_item_analysis(item, MODULE.AnalysisOptions(mode="auto", model="gpt-5-mini", timeout=5))
         self.assertEqual(enriched["analysis_method"], "local heuristic")
         self.assertIn("核心价值：", enriched["analysis"])
+
+    def test_enrich_item_analysis_raises_when_llm_required_and_unavailable(self) -> None:
+        item = {
+            "platform": "网页",
+            "platform_key": "web",
+            "summary": "这是一段测试摘要。",
+            "highlights": ["重点一。"],
+            "keywords": ["测试"],
+            "content": "这里是正文。",
+            "source_metadata": {},
+        }
+        with mock.patch.object(
+            MODULE,
+            "request_llm_analysis",
+            return_value=(None, None, "HTTP 429: model unavailable"),
+        ):
+            with self.assertRaises(RuntimeError) as ctx:
+                MODULE.enrich_item_analysis(
+                    item,
+                    MODULE.AnalysisOptions(
+                        mode="auto",
+                        model="glm-4.7",
+                        timeout=5,
+                        fail_on_unavailable=True,
+                    ),
+                )
+        self.assertIn("模型不可用", str(ctx.exception))
+
+    def test_verify_analysis_backend_returns_error_when_llm_preflight_fails(self) -> None:
+        with mock.patch.object(
+            MODULE,
+            "request_llm_analysis",
+            return_value=(None, None, "HTTP 429: model unavailable"),
+        ):
+            error = MODULE.verify_analysis_backend(
+                MODULE.AnalysisOptions(
+                    mode="auto",
+                    model="glm-4.7",
+                    timeout=5,
+                    fail_on_unavailable=True,
+                )
+            )
+        self.assertIn("HTTP 429", error or "")
 
     def test_build_item_uses_share_text_fallback_when_media_extract_fails(self) -> None:
         with (
@@ -452,7 +650,7 @@ class ContentProcessorTests(unittest.TestCase):
         )
         self.assertIn('type: "content-digest"', note)
         self.assertIn('tags:', note)
-        self.assertIn("[openai/openai-python](sources/01_github_openai_openai-python.md)", note)
+        self.assertIn("[[01_github_openai_openai-python|openai/openai-python]]", note)
         self.assertIn("## 来源摘要", note)
 
     def test_write_obsidian_item_notes_creates_note_files(self) -> None:
@@ -484,7 +682,47 @@ class ContentProcessorTests(unittest.TestCase):
 
         self.assertIn('type: "content-source"', content)
         self.assertIn("## 原文摘录", content)
-        self.assertIn("[20260418_143000_多平台信息汇总](../20260418_143000_多平台信息汇总.md)", content)
+        self.assertIn("[[20260418_143000_多平台信息汇总]]", content)
+
+    def test_write_knowledge_card_notes_creates_single_note_per_item(self) -> None:
+        generated_at = MODULE.datetime(2026, 4, 20, 12, 0)
+        item = {
+            "title": "第一个出厂就带缰绳的AI Agent",
+            "platform": "抖音",
+            "platform_key": "douyin",
+            "status": "success",
+            "source": "https://v.douyin.com/example",
+            "author": "疯码牛",
+            "published_at": "2026-04-20",
+            "duration": "01:20",
+            "extract_method": "playwright douyin download + whisper-cli",
+            "keywords": ["agent", "workflow"],
+            "warnings": [],
+            "summary": "这条内容强调 Agent 需要边界控制。",
+            "analysis": "核心价值：给 AI Agent 加边界控制。\n适用场景：适合搭建会自动执行的流程。\n关注点：不要忽略权限和动作审计。",
+            "analysis_method": "openai chat.completions (glm-4-flash)",
+            "highlights": ["先定义边界，再放权。", "高风险动作要可审计。"],
+            "content": "完整转录内容。" * 40,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+            output_dir = obsidian_root / "2026-04-20" / "20260420_120000_Agent边界控制"
+            output_dir.mkdir(parents=True, exist_ok=True)
+            paths = MODULE.write_knowledge_card_notes(
+                [item],
+                output_dir,
+                vault_root,
+                obsidian_root,
+                generated_at,
+            )
+            content = paths[0].read_text(encoding="utf-8")
+
+        self.assertEqual(len(paths), 1)
+        self.assertIn('type: "knowledge-card"', content)
+        self.assertIn("## 适用场景", content)
+        self.assertIn("## 方法 / 判断要点", content)
+        self.assertIn("<details>", content)
 
 
 if __name__ == "__main__":

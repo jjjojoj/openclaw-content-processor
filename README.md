@@ -7,9 +7,16 @@ English | [简体中文](./README.zh-CN.md)
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and saves them as local Markdown + JSON outputs. It can now write directly into an Obsidian vault with frontmatter and per-source notes.
+`openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and saves them as local Markdown + JSON outputs. It can now write directly into an Obsidian vault as knowledge-card notes by default, with the legacy digest layout still available when needed.
 
 ![Report preview](./assets/report-preview.svg)
+
+## Workspace Update
+
+- The current workspace build defaults to `knowledge-card` output in Obsidian mode.
+- `.env` files inside the skill directory are loaded automatically, so local OpenAI-compatible settings can take effect without manual export.
+- Non-OpenAI providers such as GLM / MiniMax can now use `chat/completions` style endpoints, while official OpenAI still uses `responses`.
+- If you already configured `zai` / GLM Coding Plan inside OpenClaw, this skill can now reuse that local provider config instead of maintaining a second key by hand.
 
 ## What's New In v2.4.0
 
@@ -90,7 +97,7 @@ See [docs/release-validation.md](./docs/release-validation.md) for the latest re
 | Media pipeline | Uses `yt-dlp` subtitles first, then `ffmpeg + whisper-cli` |
 | Local analysis | Produces summary, highlights, keywords, and analysis text |
 | Structured output | Saves `report.md`, `report.json`, and per-item JSON files |
-| Obsidian export | Writes vault-ready notes with YAML frontmatter and one markdown note per source |
+| Obsidian export | Writes vault-ready knowledge-card notes by default, with a legacy digest layout available |
 | Batch-safe execution | One bad source does not kill the whole run |
 
 ## Quick Start
@@ -115,6 +122,17 @@ This installs the skill-local runtime into `.venv/`, including:
 - `trafilatura`
 - `Scrapling`
 
+### 2.5. Reuse OpenClaw's GLM config (optional, recommended)
+
+If OpenClaw already has a working `zai` / GLM Coding Plan setup, enable this in the skill `.env`:
+
+```env
+CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1
+CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
+```
+
+When enabled, the skill reads the local `zai` provider from `~/.openclaw/openclaw.json` and reuses that Coding Plan setup. On coding-plan endpoints it probes `glm-5` first and falls back to `glm-4.7` automatically. Flash models are no longer the recommended default for coding-plan analysis.
+
 ### 3. Run it
 
 Desktop / local report mode:
@@ -127,7 +145,7 @@ Obsidian mode:
 
 ```bash
 bash scripts/run.sh \
-  --obsidian \
+  --knowledge-card \
   --vault "$HOME/Documents/MyVault" \
   --folder "Inbox/内容摘要" \
   "https://github.com/openai/openai-python"
@@ -191,6 +209,15 @@ After a successful scan, the skill saves the auth state under `auth/douyin/` and
 bash scripts/run.sh --resolve-douyin-url "https://v.douyin.com/xxxxxxxx/"
 ```
 
+### Use OpenClaw's GLM provider for analysis
+
+```bash
+CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1 \
+bash scripts/run.sh \
+  --analysis-mode llm \
+  "https://github.com/openai/openai-python"
+```
+
 The Douyin media path now follows this order:
 
 - try saved cookies / auth first
@@ -226,21 +253,29 @@ items/
 Obsidian mode produces:
 
 ```text
-<Vault>/<Folder>/YYYY-MM-DD/<timestamp_title>/
-  <timestamp_title>.md
-  report.json
-  items/
-    01_title.json
-  sources/
-    01_platform_title.md
+<Vault>/<Folder>/
+  _index.md
+  _log.md
+  YYYY-MM-DD/
+    <timestamp_title>/
+      Agent boundary control.md
+      report.json
+      items/
+        01_title.json
 ```
 
-The Obsidian note set includes:
+The default Obsidian note set includes:
 
-- one digest note for the whole batch
-- one markdown note per source
+- one knowledge-card markdown note per source/link
 - YAML frontmatter for Dataview / filtering / tagging
-- relative markdown links between the digest note and source notes
+- `_index.md` and `_log.md` append-only navigation files at the vault-folder root
+- no `sources/` directory in the default knowledge-card layout
+
+If you still need the older batch digest + per-source layout, run:
+
+```bash
+bash scripts/run.sh --digest --vault "$HOME/Documents/MyVault" "https://example.com"
+```
 
 `report.json` includes:
 
@@ -256,14 +291,11 @@ Typical CLI response:
   "schema_version": "1.0.0",
   "status": "success",
   "report_title": "GitHub validation",
-  "output_dir": "/Users/you/Desktop/内容摘要/2026-03-26/20260326_024343_GitHub验证",
-  "report_md": "/Users/you/Desktop/内容摘要/2026-03-26/20260326_024343_GitHub验证/report.md",
-  "report_json": "/Users/you/Desktop/内容摘要/2026-03-26/20260326_024343_GitHub验证/report.json",
-  "item_count": 1,
-  "success_count": 1,
-  "partial_count": 0,
-  "failed_count": 0
-}
+  "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证",
+  "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/OpenAI Python SDK.md",
+  report.json
+  items/
+    01_title.json
 ```
 
 ## Extraction Strategy
@@ -275,7 +307,7 @@ Different sources use different pipelines on purpose:
 - Dynamic / anti-bot pages: `Scrapling`
 - Media links: `yt-dlp` subtitles first
 - No usable subtitles: `ffmpeg + whisper-cli`
-- Analysis layer: OpenAI-compatible responses first, then local heuristic fallback
+- Analysis layer: official OpenAI uses `responses`; non-OpenAI-compatible providers default to `chat/completions`; local heuristic remains the final fallback
 
 ## Configuration
 
@@ -285,11 +317,13 @@ Most useful variables:
 
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
+- `CONTENT_PROCESSOR_OPENAI_RESPONSES_URL`
 - `CONTENT_PROCESSOR_ANALYSIS_MODE`
 - `CONTENT_PROCESSOR_ANALYSIS_MODEL`
 - `CONTENT_PROCESSOR_OUTPUT_MODE`
 - `CONTENT_PROCESSOR_OBSIDIAN_VAULT`
 - `CONTENT_PROCESSOR_OBSIDIAN_FOLDER`
+- `CONTENT_PROCESSOR_OBSIDIAN_LAYOUT`
 - `CONTENT_PROCESSOR_COOKIES_FILE`
 - `CONTENT_PROCESSOR_COOKIES_FROM_BROWSER`
 - `CONTENT_PROCESSOR_COOKIE_HEADER`

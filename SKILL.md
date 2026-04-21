@@ -28,7 +28,7 @@ metadata:
 
 本次发布重点：
 
-- Obsidian 导出成为一级目标，支持 frontmatter 和逐来源 markdown
+- Obsidian 导出默认切到 knowledge-card 单笔记，legacy digest 布局仍可兼容启用
 - 抖音链路升级为“已有认证 -> 扫码登录 -> Playwright 兜底”
 - 仅用于转写的临时 mp4 会在转写后自动清理
 - 飞书 / 飞书知识库上传不属于当前 skill 的支持范围，输出目标只有桌面本地报告和 Obsidian Vault
@@ -135,21 +135,53 @@ bash "$SKILL_DIR/scripts/run.sh" \
 - `report.json` - 结构化数据，包含 `schema_version`、整体状态、tool info 和逐项状态
 - `items/*.json` - 每个来源的单独抽取结果
 
-Obsidian 模式目录结构：
+Obsidian 模式默认目录结构（knowledge-card）：
 
 ```text
-<Vault>/<Folder>/YYYY-MM-DD/<timestamp_title>/
-  <timestamp_title>.md
-  report.json
-  items/*.json
-  sources/*.md
+<Vault>/<Folder>/
+  _index.md              ← 全局索引（每次处理自动追加，wikilink 指向 digest）
+  _log.md                ← 操作日志（可 grep：`## [日期] ingest | 标题`）
+  YYYY-MM-DD/
+    <timestamp_title>/
+      知识卡片主题名.md        ← 单条来源的知识卡片（type: knowledge-card）
+      report.json
+      items/*.json
 ```
 
 其中：
 
-- 根笔记是整批汇总索引
-- `sources/*.md` 是每个来源的独立笔记
+- `_index.md` 是全局内容索引，每条记录用 `[[wikilink]]` 指向知识卡片，AI 可先扫这个定位
+- `_log.md` 是追加式操作日志，`grep "^## \[" _log.md | tail -10` 查最近10次处理
+- 默认一条来源对应一张知识卡片，一个 Obsidian 节点
 - 所有笔记都带 YAML frontmatter，适合 Obsidian / Dataview
+- 默认不再生成 `sources/` 目录；如需旧版 digest+source，可显式传 `--obsidian-layout digest`
+
+## Dataview 查询示例
+
+在 Obsidian 中用 Dataview 查询已处理的内容：
+
+最近 7 天的知识卡片：
+```dataview
+TABLE WITHOUT ID file.link AS "卡片", digest_date AS "日期", platform AS "平台"
+WHERE type = "knowledge-card"
+SORT file.cday DESC
+```
+
+按平台筛选：
+```dataview
+TABLE WITHOUT ID file.link AS "笔记", digest_date AS "日期", platform AS "平台"
+FROM "Inbox"
+WHERE platform_key = "douyin"
+SORT digest_date DESC
+```
+
+按关键词跨批次聚合：
+```dataview
+TABLE WITHOUT ID file.link AS "笔记", digest_date AS "日期", platform AS "平台"
+FROM "Inbox"
+WHERE contains(keywords, "关键词")
+SORT digest_date DESC
+```
 
 ## Required Workflow
 
@@ -179,7 +211,7 @@ bash "$SKILL_DIR/scripts/run.sh" "<url1>" "<url2>" ...
 - 视频/社媒分享：优先 `yt-dlp` 字幕
 - 没字幕的视频：回退到 `ffmpeg + whisper-cli`
 - 抖音媒体链路：优先已有 cookie / 登录态；认证失败时先尝试扫码登录一次；仍失败再回退到 Playwright 网络下载
-- AI 分析：优先走 OpenAI-compatible `responses`，不可用时回退到本地启发式分析
+- AI 分析：官方 OpenAI 优先走 `responses`；GLM / MiniMax 等非 OpenAI 服务默认兼容 `chat/completions`；不可用时回退到本地启发式分析
 - 实在抽不出正文时：保留元数据并写入告警
 
 ### 4. 汇报结果
@@ -228,3 +260,147 @@ bash "$SKILL_DIR/scripts/run.sh" "<url1>" "<url2>" ...
 ```bash
 export WHISPER_MODEL=/absolute/path/to/ggml-small.bin
 ```
+
+---
+
+## Obsidian 知识卡片模式（v2.5.0 规划）
+
+> 2026-04-20 确认：Obsidian 默认输出已切到 knowledge-card 单笔记模式；旧 digest+source 仅作为兼容布局保留。
+
+### 核心原则
+
+1. **一张卡片 = 一个独立知识点**，标题反映核心价值（不是原始视频/文章标题），永远不合并
+2. **知识卡片格式**：适用场景 → 方法（原理/操作/观察点/判断标准）→ 注意事项 → 原始转录折叠
+3. **标签做轻量分类**，wikilink 做关联，MOC 做主题聚合（3+ 卡片后创建）
+4. **目录按日期扁平归档**，不按主题建子目录
+
+### LLM 分析配置
+
+配置文件：`$SKILL_DIR/.env`
+
+```env
+CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1
+CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
+```
+
+**已知限制**：
+- 智谱 GLM 不支持 OpenAI Responses API（`/v1/responses` → 404），必须走 `/chat/completions`
+- 如果复用 OpenClaw 的 `zai` coding-plan 配置，优先探测 `glm-5`，不行自动回退到 `glm-4.7`
+- coding-plan 场景默认不再推荐 `flash / flashx` 作为分析模型
+- MiniMax API 同样不支持 Responses API
+- 术语纠正和专有名词校准目前仍主要依赖 prompt / 人工校对，不是独立的后处理模块
+
+### Obsidian Vault 目录结构
+
+```text
+信息流/
+├── .obsidian/
+├── 00-从这里开始.md
+├── Inbox/内容摘要/
+│   ├── _index.md            ← 全局索引（按日期，wikilink 指向知识卡片）
+│   ├── _log.md              ← 操作日志
+│   └── YYYY-MM-DD/
+│       └── 知识卡片主题名/     ← 一个知识点一个文件夹，一个节点
+│           ├── 知识卡片主题名.md  ← 主笔记（结构化知识卡片）
+│           ├── items/*.json      ← 原始抽取数据（备用）
+│           └── report.json
+├── MOC/                      ← 主题总览页（积累 3+ 卡片后按需创建）
+│   ├── 识人技巧.md
+│   └── AI 工具箱.md
+└── attachments/
+```
+
+### 知识卡片模板
+
+```markdown
+---
+title: "精炼主题名（4-8字）"
+type: knowledge-card
+created: YYYY-MM-DDTHH:MM
+source: 平台 @作者
+source_url: 原始链接
+tags:
+  - 主题标签
+  - 细分标签
+---
+
+# 主题名
+
+> 一句话概括核心价值
+
+## 适用场景
+- 场景1 — 简要说明
+- 场景2 — 简要说明
+
+---
+
+## 方法一：方法名
+
+**原理：** 一句话说明为什么有效
+
+**操作步骤：**
+1. 具体步骤1
+2. 具体步骤2
+
+**判断标准：**
+
+| 健康表现 ✅ | 警惕信号 ❌ |
+|---|---|
+| ... | ... |
+
+> 💡 原理解释（可选）
+
+---
+
+## 方法二：方法名
+
+（同上结构）
+
+---
+
+## 注意事项
+
+- ⚠️ 容易误判的情况
+- ⚠️ 限制条件
+
+---
+
+## 原始转录
+
+<details>
+<summary>展开查看完整转录（N字）</summary>
+
+转录内容...
+
+</details>
+```
+
+### 知识卡片生成流程
+
+1. **抓取内容**：走 content-processor 正常链路（playwright/yt-dlp/whisper）
+2. **GLM 结构化提炼**：优先复用 OpenClaw 本地 `zai` provider，coding-plan 下优先 `glm-5`，否则回退 `glm-4.7`
+3. **写入知识卡片**：按模板写入 Obsidian Vault
+4. **更新索引**：追加 `_index.md` 和 `_log.md`
+5. **汇报用户**：保存路径 + 核心结论
+
+### LLM 提炼 Prompt 模板
+
+```
+你是一个知识内化专家。请将以下视频/文章转录内容转化为一篇「可操作的知识卡片」：
+
+1. 取一个精炼的主题名（4-8字，反映核心价值）
+2. 结构化输出：适用场景 → 方法（原理/操作/观察点/判断标准）→ 注意事项
+3. 忠于原文，不编造原文没有的方法
+4. 如果原文只有2个方法就只写2个，不要凑数
+5. 语言简洁有力，像操作手册
+
+对于结构不清晰的内容，也要强制结构化。
+对于实操型内容，重点提炼「怎么做」而非「讲了什么」。
+对于观点型内容，重点提炼「核心论点+论据+适用边界」。
+```
+
+### 待改造清单
+
+- [ ] 把知识卡片专用 prompt 进一步从 3 行分析升级为“适用场景 / 方法 / 注意事项”专用结构化输出
+- [ ] 自动检测同类标签，提示是否创建 MOC
+- [ ] 为术语纠正补一个显式后处理层，而不是只依赖 prompt

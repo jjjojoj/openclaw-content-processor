@@ -19,6 +19,7 @@ usage() {
 Usage: bash scripts/run.sh [--auto-bootstrap] [skill options...] <source>...
        bash scripts/run.sh [--auto-bootstrap] [--title "报告标题"] [--source <url>]...
        bash scripts/run.sh [--obsidian] [--vault "/path/to/Vault"] [--folder "Inbox/内容摘要"] [--source <url>]...
+       bash scripts/run.sh [--knowledge-card] [--vault "/path/to/Vault"] [--source <url>]...
 
 Options:
   --auto-bootstrap   Also install missing brew dependencies before running
@@ -26,6 +27,8 @@ Options:
   --source           Add one source URL or file path explicitly
   --obsidian         Alias for --output-mode obsidian
   --both             Alias for --output-mode both
+  --knowledge-card   Alias for --output-mode obsidian --obsidian-layout knowledge-card
+  --digest           Alias for --output-mode obsidian --obsidian-layout digest
   --vault            Alias for --obsidian-vault
   --folder           Alias for --obsidian-folder
   --login-douyin     Open a Chromium window for QR login and save Douyin auth locally
@@ -40,7 +43,7 @@ Notes:
     unless --auto-bootstrap is provided.
   - Douyin QR auth is optional. When enabled, auth files are saved under auth/douyin/.
   - With --obsidian or --vault, notes are written into your Obsidian vault with frontmatter
-    and per-source markdown notes.
+    and knowledge-card markdown notes by default.
 EOF
 }
 
@@ -106,6 +109,12 @@ while [[ $# -gt 0 ]]; do
       ;;
     --both)
       ARGS+=("--output-mode" "both")
+      ;;
+    --knowledge-card)
+      ARGS+=("--output-mode" "obsidian" "--obsidian-layout" "knowledge-card")
+      ;;
+    --digest)
+      ARGS+=("--output-mode" "obsidian" "--obsidian-layout" "digest")
       ;;
     --vault)
       if [[ $# -lt 2 ]]; then

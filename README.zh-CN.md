@@ -7,9 +7,16 @@
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`openclaw-content-processor` 是一个 OpenClaw skill，也是一个可独立运行的命令行工具。它会接收一个或多个分享链接，按来源类型自动抓取、清洗、归纳，并输出本地 Markdown + JSON 结果。现在也支持直接写入 Obsidian Vault，自动生成 frontmatter 和单条来源笔记。
+`openclaw-content-processor` 是一个 OpenClaw skill，也是一个可独立运行的命令行工具。它会接收一个或多个分享链接，按来源类型自动抓取、清洗、归纳，并输出本地 Markdown + JSON 结果。现在也支持直接写入 Obsidian Vault，默认生成 knowledge-card 单卡片笔记，同时保留 legacy digest 布局作为兼容模式。
 
 ![报告预览](./assets/report-preview.svg)
+
+## Workspace 当前更新
+
+- 当前 workspace 构建在 Obsidian 模式下默认输出 `knowledge-card` 单笔记。
+- skill 目录下的 `.env` 会自动加载，不需要再手工 `export` 才能让本地配置生效。
+- 对 GLM / MiniMax 这类不支持 Responses API 的服务，现在会优先兼容 `chat/completions`。
+- 如果你已经在 OpenClaw 里配置了 `zai` / GLM Coding Plan，这个 skill 现在也可以直接复用那份本地 provider 配置，不用再单独维护第二份 key。
 
 ## 本次更新（v2.4.0）
 
@@ -90,7 +97,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 | 媒体处理链路 | 优先 `yt-dlp` 字幕，无字幕则 `ffmpeg + whisper-cli` |
 | 本地分析 | 生成 summary、highlights、keywords、analysis |
 | 结构化输出 | 保存 `report.md`、`report.json` 和逐项 JSON |
-| Obsidian 导出 | 输出 Vault 友好的 frontmatter 笔记，并为每个来源生成独立 markdown |
+| Obsidian 导出 | 默认输出 Vault 友好的 knowledge-card 单笔记，也保留 legacy digest 布局作为兼容模式 |
 | 批处理容错 | 单条失败不会拖垮整批 |
 
 ## 快速开始
@@ -115,6 +122,17 @@ bash scripts/bootstrap.sh --install-python
 - `trafilatura`
 - `Scrapling`
 
+### 2.5. 复用 OpenClaw 里的 GLM 配置（可选，但推荐）
+
+如果你已经在 OpenClaw 里把智谱 `zai` / GLM Coding Plan 配好了，可以在 skill 的 `.env` 里启用：
+
+```env
+CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1
+CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
+```
+
+启用后，skill 会直接读取 `~/.openclaw/openclaw.json` 里的本地 `zai` provider 配置，并在 coding-plan 端点上优先探测 `glm-5`，不行就自动回退 `glm-4.7`。默认不再推荐把 `flash` 当 coding-plan 的分析模型。
+
 ### 3. 直接运行
 
 桌面 / 本地报告模式：
@@ -127,7 +145,7 @@ Obsidian 模式：
 
 ```bash
 bash scripts/run.sh \
-  --obsidian \
+  --knowledge-card \
   --vault "$HOME/Documents/MyVault" \
   --folder "Inbox/内容摘要" \
   "https://github.com/openai/openai-python"
@@ -191,6 +209,15 @@ bash scripts/run.sh --login-douyin
 bash scripts/run.sh --resolve-douyin-url "https://v.douyin.com/xxxxxxxx/"
 ```
 
+### 用 OpenClaw 的 GLM 做分析
+
+```bash
+CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1 \
+bash scripts/run.sh \
+  --analysis-mode llm \
+  "https://github.com/openai/openai-python"
+```
+
 抖音媒体链路的顺序是：
 
 - 先尝试已有 cookie / 登录态
@@ -226,21 +253,29 @@ items/
 Obsidian 模式会生成：
 
 ```text
-<Vault>/<Folder>/YYYY-MM-DD/<timestamp_title>/
-  <timestamp_title>.md
-  report.json
-  items/
-    01_title.json
-  sources/
-    01_platform_title.md
+<Vault>/<Folder>/
+  _index.md
+  _log.md
+  YYYY-MM-DD/
+    <timestamp_title>/
+      Agent 边界控制.md
+      report.json
+      items/
+        01_title.json
 ```
 
-其中 Obsidian 导出包含：
+其中默认 knowledge-card 导出包含：
 
-- 一条整批汇总笔记
-- 每个来源一条独立 markdown 笔记
+- 每个来源 / 链接一条独立知识卡片 markdown
 - 适合 Dataview / 过滤 / 标签的 YAML frontmatter
-- 汇总笔记和来源笔记之间的相对链接
+- 位于 Vault 根目录下的 `_index.md` 和 `_log.md`
+- 默认不再生成 `sources/` 目录
+
+如果你仍然需要旧的 batch digest + per-source 布局，可以显式运行：
+
+```bash
+bash scripts/run.sh --digest --vault "$HOME/Documents/MyVault" "https://example.com"
+```
 
 `report.json` 里会包含：
 
@@ -256,14 +291,11 @@ CLI 结束时会输出一个 JSON 概览，例如：
   "schema_version": "1.0.0",
   "status": "success",
   "report_title": "GitHub validation",
-  "output_dir": "/Users/you/Desktop/内容摘要/2026-03-26/20260326_024343_GitHub验证",
-  "report_md": "/Users/you/Desktop/内容摘要/2026-03-26/20260326_024343_GitHub验证/report.md",
-  "report_json": "/Users/you/Desktop/内容摘要/2026-03-26/20260326_024343_GitHub验证/report.json",
-  "item_count": 1,
-  "success_count": 1,
-  "partial_count": 0,
-  "failed_count": 0
-}
+  "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证",
+  "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/OpenAI Python SDK.md",
+  report.json
+  items/
+    01_title.json
 ```
 
 ## 抽取策略
@@ -275,7 +307,7 @@ CLI 结束时会输出一个 JSON 概览，例如：
 - 动态 / 反爬页面：`Scrapling`
 - 媒体链接：优先 `yt-dlp` 字幕
 - 没有可用字幕：回退 `ffmpeg + whisper-cli`
-- 分析层：优先 OpenAI-compatible responses，失败时回退本地 heuristic
+- 分析层：官方 OpenAI 优先走 `responses`；GLM / MiniMax 等非 OpenAI 服务默认兼容 `chat/completions`；最后再回退到本地 heuristic
 
 ## 配置说明
 
@@ -285,11 +317,13 @@ CLI 结束时会输出一个 JSON 概览，例如：
 
 - `OPENAI_API_KEY`
 - `OPENAI_BASE_URL`
+- `CONTENT_PROCESSOR_OPENAI_RESPONSES_URL`
 - `CONTENT_PROCESSOR_ANALYSIS_MODE`
 - `CONTENT_PROCESSOR_ANALYSIS_MODEL`
 - `CONTENT_PROCESSOR_OUTPUT_MODE`
 - `CONTENT_PROCESSOR_OBSIDIAN_VAULT`
 - `CONTENT_PROCESSOR_OBSIDIAN_FOLDER`
+- `CONTENT_PROCESSOR_OBSIDIAN_LAYOUT`
 - `CONTENT_PROCESSOR_COOKIES_FILE`
 - `CONTENT_PROCESSOR_COOKIES_FROM_BROWSER`
 - `CONTENT_PROCESSOR_COOKIE_HEADER`
