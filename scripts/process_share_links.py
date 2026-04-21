@@ -737,6 +737,7 @@ def parse_analysis_sections(text: str) -> dict[str, str]:
         "card_title": "",
         "core_value": "",
         "scenarios": "",
+        "learning_points": "",
         "methods": "",
         "categories": "",
         "concerns": "",
@@ -747,22 +748,24 @@ def parse_analysis_sections(text: str) -> dict[str, str]:
             continue
         if cleaned.startswith("卡片标题："):
             sections["card_title"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("核心价值："):
+        elif cleaned.startswith("核心价值：") or cleaned.startswith("一句话定位："):
             sections["core_value"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("适用场景："):
+        elif cleaned.startswith("适用场景：") or cleaned.startswith("适合阶段："):
             sections["scenarios"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("方法要点："):
+        elif cleaned.startswith("你会学到："):
+            sections["learning_points"] = normalize_space(cleaned.split("：", 1)[1])
+        elif cleaned.startswith("方法要点：") or cleaned.startswith("推荐学习路径："):
             sections["methods"] = normalize_space(cleaned.split("：", 1)[1])
         elif cleaned.startswith("分类："):
             sections["categories"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("关注点："):
+        elif cleaned.startswith("关注点：") or cleaned.startswith("学习提醒："):
             sections["concerns"] = normalize_space(cleaned.split("：", 1)[1])
     return sections
 
 
 def derive_knowledge_card_title(item: dict[str, object]) -> str:
     if str(item.get("platform_key") or "") == "github":
-        return suggest_github_card_title(item)
+        return github_repo_name(item)
     sections = parse_analysis_sections(str(item.get("analysis") or ""))
     candidates = [
         sections["card_title"],
@@ -1859,11 +1862,11 @@ def derive_github_capabilities(item: dict[str, object]) -> list[str]:
     text = collect_github_signal_text(item)
     capabilities: list[str] = []
     rules = [
-        ("自改进学习循环与技能演化", ("self-improving", "learning loop", "creates skills", "improves them")),
-        ("多平台消息与 CLI 统一入口", ("telegram", "discord", "slack", "whatsapp", "signal", "cli")),
-        ("多模型接入与切换", ("openai", "anthropic", "openrouter", "minimax", "moonshot", "z.ai", "glm")),
-        ("定时任务与自动化调度", ("cron", "scheduler", "scheduled automations", "daily reports", "weekly audits")),
-        ("多运行环境部署", ("docker", "ssh", "daytona", "modal", "serverless", "gpu cluster", "vps")),
+        ("Agent 学习闭环和技能演化", ("self-improving", "learning loop", "creates skills", "improves them")),
+        ("多平台消息入口与 CLI 统一抽象", ("telegram", "discord", "slack", "whatsapp", "signal", "cli")),
+        ("多模型接入和供应商切换层", ("openai", "anthropic", "openrouter", "minimax", "moonshot", "z.ai", "glm")),
+        ("自动化调度与后台任务编排", ("cron", "scheduler", "scheduled automations", "daily reports", "weekly audits")),
+        ("多运行环境部署与工程化发布", ("docker", "ssh", "daytona", "modal", "serverless", "gpu cluster", "vps")),
     ]
     for label, signals in rules:
         if any(signal in text for signal in signals):
@@ -1886,106 +1889,56 @@ def build_github_summary(item: dict[str, object]) -> str:
 
     parts: list[str] = []
     if categories:
-        parts.append(f"{repo_name} 是一个 {', '.join(categories)} 项目")
+        parts.append(f"{repo_name} 适合作为 {', '.join(categories)} 方向的学习项目")
     else:
-        parts.append(f"{repo_name} 是一个值得关注的 GitHub 项目")
+        parts.append(f"{repo_name} 适合作为一个值得拆解学习的 GitHub 项目")
     if description:
         parts.append(description.rstrip("。"))
     if capabilities:
-        parts.append("重点在于 " + "、".join(capabilities))
+        parts.append("可以重点学习 " + "、".join(capabilities))
     if stars:
         parts.append(f"当前约 {stars} stars")
     return shorten("，".join(parts) + "。", 220)
 
 
 def suggest_github_card_title(item: dict[str, object]) -> str:
-    sections = parse_analysis_sections(str(item.get("analysis") or ""))
-    repo_name = github_repo_name(item)
-    explicit_title = normalize_space(sections["card_title"])
-    core_value = normalize_space(sections["core_value"])
-    description = normalize_space(str(((item.get("source_metadata") or {}) if isinstance(item.get("source_metadata"), dict) else {}).get("description") or ""))
-    categories = [format_github_category_label(value) for value in derive_github_categories(item)]
-    capabilities = derive_github_capabilities(item)
-    repo_short = repo_name.split("/")[-1].strip().lower().replace("-", "").replace("_", "")
-    explicit_compact = explicit_title.lower().replace("-", "").replace("_", "").replace(" ", "")
-    explicit_is_generic = (
-        bool(explicit_title)
-        and not re.search(r"[\u4e00-\u9fff]", explicit_title)
-        and (explicit_compact == repo_short or len(explicit_title) <= 24)
-    )
-    if explicit_title and not explicit_is_generic:
-        if repo_name and repo_name.lower() not in explicit_title.lower():
-            return shorten(f"{repo_name} | {explicit_title}", 48)
-        return shorten(explicit_title, 48)
-
-    fragments = [
-        core_value,
-        description,
-        capabilities[0] if capabilities else "",
-        categories[0] if categories else "",
-    ]
-    detail = ""
-    for fragment in fragments:
-        cleaned = normalize_space(fragment)
-        if not cleaned:
-            continue
-        cleaned = cleaned.replace(repo_name, "").strip("，,。；;：:|- ")
-        if cleaned:
-            detail = cleaned
-            break
-    if explicit_title and explicit_is_generic and detail:
-        return shorten(f"{repo_name} | {detail}", 48)
-    if detail:
-        return shorten(f"{repo_name} | {detail}", 48)
-    return shorten(repo_name or "GitHub 仓库", 48)
+    return github_repo_name(item)
 
 
 def build_github_highlights(item: dict[str, object]) -> list[str]:
     source_metadata = item.get("source_metadata")
     metadata = source_metadata if isinstance(source_metadata, dict) else {}
-    description = normalize_space(str(metadata.get("description") or ""))
     capabilities = derive_github_capabilities(item)
     categories = [format_github_category_label(value) for value in derive_github_categories(item)]
-    stars = int(metadata.get("stargazers_count") or 0)
     language = normalize_space(str(metadata.get("language") or ""))
 
     highlights: list[str] = []
-    if description:
-        highlights.append(f"定位：{description}")
     if capabilities:
-        highlights.append("能力：{}".format("、".join(capabilities)))
-    scene_parts: list[str] = []
+        for capability in capabilities[:3]:
+            highlights.append(f"可以重点学：{capability}")
+    else:
+        description = normalize_space(str(metadata.get("description") or ""))
+        if description:
+            highlights.append(f"可以重点学：{description}")
     if categories:
-        scene_parts.extend(
-            GITHUB_CATEGORY_SCENES.get(category, format_github_category_label(category))
-            for category in derive_github_categories(item)
-        )
-    if not scene_parts:
-        if language:
-            scene_parts.append(f"{language} 工程方案评估")
-        scene_parts.append("开源项目筛选")
-    highlights.append("适合：{}".format("、".join(dict.fromkeys(scene_parts))))
-    if stars:
-        highlights.append(f"热度：约 {stars} stars")
+        highlights.append("项目方向：{}".format(" / ".join(dict.fromkeys(categories))))
+    if language:
+        highlights.append(f"工程栈观察：{language} 项目的目录组织、模块拆分和依赖管理。")
     return [shorten(value, 180) for value in highlights[:4]]
 
 
 def build_github_method_points(item: dict[str, object]) -> list[str]:
     source_metadata = item.get("source_metadata")
     metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    repo_name = str(metadata.get("full_name") or item.get("title") or "该仓库")
+    methods: list[str] = [
+        f"先读 {repo_name} 的 README、Docs 和 Quickstart，确认它解决什么问题，以及你为什么要学它。",
+        "然后把项目真的跑起来，优先走最短路径：安装、示例、核心命令或 demo，而不是一开始就埋头看源码。",
+        "最后再顺着核心模块往里读，比如记忆、调度、模型抽象或 API 层，边读边记录你能复用到自己项目里的设计。",
+    ]
     capabilities = derive_github_capabilities(item)
-    methods: list[str] = []
     if capabilities:
-        methods.append("先看 README 和定位描述，确认它解决的核心问题是不是你当前正在碰到的。")
-        methods.append("重点核对 " + "、".join(capabilities[:2]) + " 是否真的是项目的主能力，而不是宣传语。")
-        methods.append("再看 stars、语言栈、默认分支和最近更新时间，判断它是不是值得继续深挖。")
-    else:
-        repo_name = str(metadata.get("full_name") or item.get("title") or "该仓库")
-        methods.extend([
-            f"先确认 {repo_name} 的定位和 README 是否清楚说明了核心用途。",
-            "再看语言栈、stars 和最近更新时间，判断成熟度和维护状态。",
-            "最后决定是继续装起来试，还是只做资料归档。",
-        ])
+        methods[2] = "最后重点拆 " + "、".join(capabilities[:2]) + " 这两层设计，边读边记录哪些做法值得迁移到你自己的练手项目里。"
     return [shorten(value, 180) for value in methods[:3]]
 
 
@@ -2001,15 +1954,17 @@ def build_local_item_analysis(item: dict[str, object]) -> str:
         stars = metadata.get("stargazers_count") or 0
         language = str(metadata.get("language") or "未识别")
         description = build_github_summary(item)
+        learning_points = "；".join(build_github_highlights(item))
         focus = "；".join(build_github_method_points(item))
         categories = ", ".join(format_github_category_label(value) for value in derive_github_categories(item))
         return "\n".join([
-            f"卡片标题：{suggest_github_card_title(item)}",
-            f"核心价值：{shorten(description, 120)}",
-            f"适用场景：这是一个 {language} 项目，当前约 {stars} stars，适合做仓库筛选、README 解读和方案评估。",
-            f"方法要点：{focus}",
+            f"卡片标题：{github_repo_name(item)}",
+            f"一句话定位：{shorten(description, 120)}",
+            f"适合阶段：这是一个 {language} 项目，当前约 {stars} stars，适合学生用来做开源项目筛选、README 拆解和工程学习。",
+            f"你会学到：{learning_points}",
+            f"推荐学习路径：{focus}",
             f"分类：{categories or 'GitHub 项目'}",
-            "关注点：不要把安装命令、徽章和导航区当成项目核心能力，优先看 README 对价值、边界和使用方式的描述。",
+            "学习提醒：不要把安装命令、徽章和导航区当成项目核心，优先看 README 里的问题定义、系统边界、核心模块和实际运行方式。",
         ])
 
     lead = highlights[0] if highlights else summary or f"{platform} 内容已完成抽取。"
@@ -2272,19 +2227,22 @@ def build_item_analysis_prompt(item: dict[str, object]) -> str:
     highlights = "\n".join(f"- {value}" for value in list(item.get("highlights") or [])[:3])
     if str(item.get("platform_key") or "") == "github":
         return "\n".join([
-            "你是一个 GitHub 项目研究助手。请用中文输出固定标签的短卡片，每行一个标签：",
-            "卡片标题：...",
-            "核心价值：...",
-            "适用场景：...",
-            "方法要点：1) ...；2) ...；3) ...",
+            "你是一个帮助学生挑选开源项目学习的 GitHub 学习教练。请用中文输出固定标签短卡片，每行一个标签：",
+            "卡片标题：owner/repo",
+            "一句话定位：...",
+            "适合阶段：...",
+            "你会学到：1) ...；2) ...；3) ...",
+            "推荐学习路径：1) ...；2) ...；3) ...",
             "分类：AI Agent, SaaS, FastAPI 这类短标签，最多 3 个",
-            "关注点：...",
+            "学习提醒：...",
             "",
             "要求：",
-            "1. 不要把 Repository、Homepage、安装命令、徽章导航当成项目核心价值。",
-            "2. 核心价值要回答“这个项目到底是干什么的，为什么值得看”。",
-            "3. 方法要点要写成“判断这个项目值不值得继续研究的 3 个观察点”，不是抄 README 原句。",
-            "4. 分类要尽量产品化、技术方向化，比如 AI Agent / SaaS / FastAPI / Automation。",
+            "1. 卡片标题必须只写 GitHub 仓库名 owner/repo，不要加副标题。",
+            "2. 不要把 Repository、Homepage、安装命令、徽章导航当成学习重点。",
+            "3. 一句话定位要回答“学生为什么值得拿它来学”。",
+            "4. 你会学到要写成具体能力点，不要写空泛夸赞。",
+            "5. 推荐学习路径要适合学生上手：先读哪、先跑哪、再拆哪。",
+            "6. 分类要尽量产品化、技术方向化，比如 AI Agent / SaaS / FastAPI / Automation。",
             "",
             f"标题：{item.get('title') or ''}",
             f"作者/组织：{item.get('author') or ''}",
@@ -2968,6 +2926,9 @@ def render_knowledge_card_note(
         summary = str(item.get("summary") or "").strip()
         if summary:
             highlights = split_sentences(summary)[:3] or [summary]
+    learning_entries = split_structured_list(sections["learning_points"])
+    if not learning_entries and is_github:
+        learning_entries = highlights[:4] or build_github_highlights(item)
     method_points = split_structured_list(sections["methods"])
     if not method_points and is_github:
         method_points = build_github_method_points(item)
@@ -3009,7 +2970,7 @@ def render_knowledge_card_note(
         f"> {shorten(lead, 180)}",
         "",
         f"- 来源：{item.get('platform') or '未知平台'}",
-        f"- 仓库/标题：{repo_name if is_github else (item.get('title') or '-')}",
+        f"- {'仓库' if is_github else '标题'}：{repo_name if is_github else (item.get('title') or '-')}",
         f"- 原始链接：{item.get('source') or '-'}",
         f"- 状态：{item.get('status') or 'unknown'}",
         f"- 分析方式：{item.get('analysis_method') or '-'}",
@@ -3030,38 +2991,59 @@ def render_knowledge_card_note(
         "",
     ])
 
-    if highlights and is_github:
+    if is_github:
         lines.extend([
-            "## 仓库亮点",
+            "## 适合什么阶段",
             "",
         ])
-        for highlight in highlights[:4]:
-            lines.append(f"- {highlight}")
-        lines.append("")
-
-    lines.extend([
-        "## 适用场景",
-        "",
-    ])
-    for scenario in scenario_entries[:4]:
-        lines.append(f"- {scenario}")
-    lines.extend([
-        "",
-        "## 方法 / 判断要点",
-        "",
-    ])
-    for point in method_points[:4]:
-        lines.append(f"- {point}")
-
-    if not method_points:
-        lines.extend(["- 建议先阅读原始链接，再决定是否沉淀为长期知识。", ""])
-
-    lines.extend(["", "## 注意事项", ""])
-    if warnings:
-        for warning in warnings:
-            lines.append(f"- {warning}")
-    for concern in concern_entries[:4]:
-        lines.append(f"- {concern}")
+        for scenario in scenario_entries[:4]:
+            lines.append(f"- {scenario}")
+        lines.extend([
+            "",
+            "## 学这个项目你会学到什么",
+            "",
+        ])
+        for learning in learning_entries[:4]:
+            lines.append(f"- {learning}")
+        if not learning_entries:
+            lines.append("- 先从 README、目录结构和示例用法里提炼你想复用的工程做法。")
+        lines.extend([
+            "",
+            "## 推荐学习路径",
+            "",
+        ])
+        for point in method_points[:4]:
+            lines.append(f"- {point}")
+        if not method_points:
+            lines.append("- 先跑起来，再反推核心模块，最后整理值得复用的设计。")
+        lines.extend(["", "## 学习提醒", ""])
+        if warnings:
+            for warning in warnings:
+                lines.append(f"- {warning}")
+        for concern in concern_entries[:4]:
+            lines.append(f"- {concern}")
+    else:
+        lines.extend([
+            "## 适用场景",
+            "",
+        ])
+        for scenario in scenario_entries[:4]:
+            lines.append(f"- {scenario}")
+        lines.extend([
+            "",
+            "## 方法 / 判断要点",
+            "",
+        ])
+        for point in method_points[:4]:
+            lines.append(f"- {point}")
+        if not method_points:
+            lines.extend(["- 建议先阅读原始链接，再决定是否沉淀为长期知识。", ""])
+        lines.extend(["", "## 注意事项", ""])
+        if warnings:
+            for warning in warnings:
+                lines.append(f"- {warning}")
+        for concern in concern_entries[:4]:
+            lines.append(f"- {concern}")
 
     if should_include_knowledge_card_evidence(item) and content:
         evidence_title, evidence_summary = build_knowledge_card_evidence_label(item, content)
@@ -3454,6 +3436,51 @@ def upsert_markdown_section_bullets(
     note_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
 
 
+def upsert_markdown_date_section_entries(
+    note_path: Path,
+    date_heading: str,
+    entries: list[str],
+) -> None:
+    if not entries:
+        return
+
+    if not note_path.exists():
+        note_path.write_text("\n".join([date_heading, "", *entries]).rstrip() + "\n", encoding="utf-8")
+        return
+
+    lines = note_path.read_text(encoding="utf-8").splitlines()
+    try:
+        heading_index = next(index for index, line in enumerate(lines) if line.strip() == date_heading)
+    except StopIteration:
+        if lines and lines[-1].strip():
+            lines.append("")
+        lines.extend([date_heading, ""])
+        lines.extend(entries)
+        note_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        return
+
+    next_heading = len(lines)
+    for index in range(heading_index + 1, len(lines)):
+        if lines[index].startswith("## "):
+            next_heading = index
+            break
+
+    existing = {
+        line.strip()
+        for line in lines[heading_index + 1:next_heading]
+        if line.strip().startswith("- ")
+    }
+    additions = [line for line in entries if line.strip() and line.strip() not in existing]
+    if not additions:
+        return
+
+    insert_at = next_heading
+    if insert_at > 0 and lines[insert_at - 1].strip():
+        additions = ["", *additions]
+    lines[insert_at:insert_at] = additions
+    note_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
 def update_obsidian_github_mocs(
     vault_root: Path,
     obsidian_folder: str,
@@ -3602,10 +3629,9 @@ def update_obsidian_knowledge_index(
         )
     if not entries:
         return
-    entry_block = "\n".join(entries) + "\n"
+    date_heading = f"## {generated_at.strftime('%Y-%m-%d')}"
     if index_path.exists():
-        content = index_path.read_text(encoding="utf-8")
-        index_path.write_text(content + entry_block, encoding="utf-8")
+        upsert_markdown_date_section_entries(index_path, date_heading, entries)
     else:
         header = (
             "---\n"
@@ -3615,8 +3641,9 @@ def update_obsidian_knowledge_index(
             "# 内容索引\n\n"
             "所有通过 content-processor 处理的知识卡片汇总。\n\n"
             "---\n\n"
+            f"{date_heading}\n\n"
         )
-        index_path.write_text(header + entry_block, encoding="utf-8")
+        index_path.write_text(header + "\n".join(entries).rstrip() + "\n", encoding="utf-8")
 
 
 def update_obsidian_log(
@@ -3694,6 +3721,8 @@ def derive_report_title(cli_title: str | None, items: list[dict[str, object]]) -
     if cli_title:
         return cli_title
     if len(items) == 1:
+        if str(items[0].get("platform_key") or "") == "github":
+            return github_repo_name(items[0]) or "GitHub 仓库"
         base = str(items[0].get("title") or "内容摘要")
         return f"{shorten(base, 32)} 内容摘要"
     return "多平台信息汇总"

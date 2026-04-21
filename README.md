@@ -7,7 +7,7 @@ English | [简体中文](./README.zh-CN.md)
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and saves them as local Markdown + JSON outputs. It can now write directly into an Obsidian vault as knowledge-card notes by default, with the legacy digest layout still available when needed.
+`openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and, once an Obsidian vault is configured, writes them into the vault as knowledge-card notes by default. Legacy desktop output is kept only as a compatibility path.
 
 ![Report preview](./assets/report-preview.svg)
 
@@ -24,7 +24,7 @@ English | [简体中文](./README.zh-CN.md)
 - Obsidian export is now a first-class output mode, with YAML frontmatter and one note per source.
 - Douyin handling is more resilient: saved auth -> QR-login retry -> Playwright network interception fallback.
 - Temporary mp4 files used only for transcription are deleted automatically after the transcript is produced.
-- Feishu / Feishu Wiki upload is not supported in the current release. The supported output targets are local desktop reports and Obsidian vaults.
+- Feishu / Feishu Wiki upload is not supported in the current release. When an Obsidian vault is configured, the default output target is your Obsidian vault.
 
 ## Install In OpenClaw
 
@@ -137,13 +137,13 @@ When enabled, the skill reads the local `zai` provider from `~/.openclaw/opencla
 
 ### 3. Run it
 
-Desktop / local report mode:
+Recommended Obsidian flow:
 
 ```bash
 bash scripts/run.sh "https://github.com/openai/openai-python"
 ```
 
-Obsidian mode:
+Explicit Obsidian mode:
 
 ```bash
 bash scripts/run.sh \
@@ -249,7 +249,7 @@ Default desktop output root:
 ~/Desktop/内容摘要/YYYY-MM-DD/<timestamp>/
 ```
 
-Desktop mode produces:
+Legacy desktop mode can still produce:
 
 ```text
 report.md

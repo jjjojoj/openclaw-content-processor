@@ -1,7 +1,7 @@
 ---
 name: content-processor
 version: 2.4.0
-description: 处理用户分享的网页、公众号、知乎、CSDN、头条、YouTube、B站、抖音、小红书、微博、X/Twitter 等链接。当用户提到分享链接、多平台链接、内容摘要、汇总报告、整理链接、保存到 Obsidian、保存到桌面时触发。自动抽取内容并生成本地 Markdown + JSON 汇总结果，支持直接写入 Obsidian Vault。
+description: 处理用户分享的网页、公众号、知乎、CSDN、头条、YouTube、B站、抖音、小红书、微博、X/Twitter 等链接。当用户提到分享链接、多平台链接、内容摘要、汇总报告、整理链接、保存到 Obsidian 时触发。自动抽取内容并生成写入 Obsidian Vault 的 Markdown + JSON 结果。
 metadata:
   clawdbot:
     emoji: "🧾"
@@ -22,7 +22,7 @@ metadata:
 
 # Content Processor
 
-把用户给出的一个或多个分享链接整理成本地笔记。这个 skill 的主路径是本地落地：先抓取内容，再生成 Markdown + JSON 结果；如果配置了 Obsidian Vault，就直接写成 Obsidian 友好的 frontmatter 笔记。
+把用户给出的一个或多个分享链接整理成 Obsidian 笔记。这个 skill 的主路径是直接落到 Obsidian Vault：先抓取内容，再生成 Markdown + JSON 结果，并写成 Obsidian 友好的 frontmatter 笔记。
 
 当前正式发布版：`v2.4.0`
 

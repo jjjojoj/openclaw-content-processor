@@ -424,23 +424,27 @@ class ContentProcessorTests(unittest.TestCase):
             },
         })
         self.assertIn("卡片标题：", text)
-        self.assertIn("核心价值：", text)
+        self.assertIn("一句话定位：", text)
+        self.assertIn("你会学到：", text)
+        self.assertIn("推荐学习路径：", text)
         self.assertIn("TypeScript", text)
         self.assertIn("1000", text)
 
     def test_parse_analysis_sections_extracts_github_card_fields(self) -> None:
         sections = MODULE.parse_analysis_sections(
             "\n".join([
-                "卡片标题：NousResearch/hermes-agent | 自学习 AI Agent",
-                "核心价值：一个带学习循环的 Agent 框架。",
-                "适用场景：个人助手；自动化代理",
-                "方法要点：1) 先看 README；2) 再看 tools；3) 最后看维护状态",
+                "卡片标题：NousResearch/hermes-agent",
+                "一句话定位：一个带学习循环的 Agent 框架。",
+                "适合阶段：学过 Python、想找真实开源项目练手的学生",
+                "你会学到：1) Agent 记忆；2) 多模型切换；3) 调度设计",
+                "推荐学习路径：1) 先看 README；2) 再看 tools；3) 最后看维护状态",
                 "分类：AI Agent, Automation",
-                "关注点：确认权限边界和动作审计。",
+                "学习提醒：确认权限边界和动作审计。",
             ])
         )
-        self.assertEqual(sections["card_title"], "NousResearch/hermes-agent | 自学习 AI Agent")
-        self.assertIn("个人助手", sections["scenarios"])
+        self.assertEqual(sections["card_title"], "NousResearch/hermes-agent")
+        self.assertIn("真实开源项目练手", sections["scenarios"])
+        self.assertIn("Agent 记忆", sections["learning_points"])
         self.assertIn("README", sections["methods"])
         self.assertIn("AI Agent", sections["categories"])
 
@@ -462,10 +466,10 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertEqual(item["status"], "success")
         self.assertIn("NousResearch/hermes-agent", item["summary"])
         self.assertIn("AI Agent", item["summary"])
-        self.assertIn("定位：", item["highlights"][0])
+        self.assertIn("可以重点学", item["highlights"][0])
         self.assertIn("ai-agent", item["github_categories"])
 
-    def test_suggest_github_card_title_prefers_core_value_when_explicit_title_is_generic(self) -> None:
+    def test_suggest_github_card_title_returns_repo_name(self) -> None:
         title = MODULE.suggest_github_card_title({
             "title": "hermes-agent",
             "platform": "GitHub",
@@ -480,8 +484,7 @@ class ContentProcessorTests(unittest.TestCase):
                 "topics": ["ai-agent"],
             },
         })
-        self.assertIn("NousResearch/hermes-agent", title)
-        self.assertIn("学习循环", title)
+        self.assertEqual(title, "NousResearch/hermes-agent")
 
     def test_enrich_item_analysis_falls_back_to_local_when_llm_missing(self) -> None:
         item = {
@@ -715,6 +718,16 @@ class ContentProcessorTests(unittest.TestCase):
                 obsidian_folder="Inbox/内容摘要",
             ))
 
+    def test_derive_report_title_uses_repo_name_for_single_github_item(self) -> None:
+        title = MODULE.derive_report_title("", [
+            {
+                "title": "hermes-agent",
+                "platform_key": "github",
+                "source_metadata": {"full_name": "NousResearch/hermes-agent"},
+            }
+        ])
+        self.assertEqual(title, "NousResearch/hermes-agent")
+
     def test_render_obsidian_index_note_includes_frontmatter_and_links(self) -> None:
         generated_at = MODULE.datetime(2026, 4, 18, 14, 30)
         note = MODULE.render_obsidian_index_note(
@@ -829,15 +842,16 @@ class ContentProcessorTests(unittest.TestCase):
             "warnings": [],
             "summary": "NousResearch/hermes-agent 是一个 AI Agent 项目。",
             "analysis": "\n".join([
-                "卡片标题：NousResearch/hermes-agent | 自学习 AI Agent",
-                "核心价值：一个带学习循环的 AI Agent 框架。",
-                "适用场景：个人助手；自动化代理",
-                "方法要点：1) 先看 README；2) 核对 skills 和 cron；3) 再看维护状态",
+                "卡片标题：NousResearch/hermes-agent",
+                "一句话定位：一个带学习循环的 AI Agent 框架。",
+                "适合阶段：学过 Python、想找真实开源项目练手的学生",
+                "你会学到：1) Agent 记忆；2) 多模型切换；3) 调度设计",
+                "推荐学习路径：1) 先看 README；2) 核对 skills 和 cron；3) 再看维护状态",
                 "分类：AI Agent, Automation",
-                "关注点：确认权限边界和动作审计。",
+                "学习提醒：确认权限边界和动作审计。",
             ]),
             "analysis_method": "openai chat.completions (glm-4.7)",
-            "highlights": ["定位：带学习循环的 AI Agent 框架", "能力：多平台消息与 CLI 统一入口"],
+            "highlights": ["可以重点学：带学习循环的 AI Agent 框架", "可以重点学：多平台消息与 CLI 统一入口"],
             "content": "README 内容。" * 30,
             "source_metadata": {
                 "full_name": "NousResearch/hermes-agent",
@@ -854,7 +868,7 @@ class ContentProcessorTests(unittest.TestCase):
             note_path.parent.mkdir(parents=True, exist_ok=True)
             content = MODULE.render_knowledge_card_note(
                 item,
-                "NousResearch/hermes-agent | 自学习 AI Agent",
+                "NousResearch/hermes-agent",
                 generated_at,
                 vault_root,
                 obsidian_root,
@@ -862,9 +876,12 @@ class ContentProcessorTests(unittest.TestCase):
             )
 
         self.assertIn('knowledge_branch: "GitHub"', content)
-        self.assertIn("## 仓库亮点", content)
+        self.assertIn("# NousResearch/hermes-agent", content)
         self.assertIn("GitHub 仓库", content)
-        self.assertIn("AI Agent", content)
+        self.assertIn("## 适合什么阶段", content)
+        self.assertIn("## 学这个项目你会学到什么", content)
+        self.assertIn("## 推荐学习路径", content)
+        self.assertIn("## 学习提醒", content)
         self.assertIn("先看 README", content)
         self.assertNotIn("## 原始转录", content)
         self.assertNotIn("## 抓取证据", content)
@@ -986,6 +1003,56 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn("Repo B", root_note)
         self.assertIn("Repo A", category_note)
         self.assertIn("Repo B", category_note)
+
+    def test_update_obsidian_knowledge_index_groups_entries_by_date_heading(self) -> None:
+        generated_at = MODULE.datetime(2026, 4, 21, 17, 23)
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_folder = "Inbox/内容摘要"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+            obsidian_root.mkdir(parents=True, exist_ok=True)
+            index_path = obsidian_root / "_index.md"
+            index_path.write_text(
+                "\n".join([
+                    "---",
+                    "type: content-index",
+                    "created: 2026-04-20T13:46:25",
+                    "---",
+                    "",
+                    "# 内容索引",
+                    "",
+                    "所有通过 content-processor 处理的知识卡片汇总。",
+                    "",
+                    "---",
+                    "",
+                    "## 2026-04-20",
+                    "",
+                    "- [[旧卡片]] · 2026-04-20 10:00 · 抖音 · success",
+                    "",
+                ]),
+                encoding="utf-8",
+            )
+            note_path = obsidian_root / "2026-04-21" / "run" / "NousResearch_hermes-agent.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            note_path.write_text("# hermes\n", encoding="utf-8")
+
+            MODULE.update_obsidian_knowledge_index(
+                vault_root,
+                obsidian_folder,
+                [note_path],
+                [{
+                    "knowledge_card_title": "NousResearch/hermes-agent",
+                    "platform": "GitHub",
+                    "status": "success",
+                }],
+                generated_at,
+            )
+
+            content = index_path.read_text(encoding="utf-8")
+
+        self.assertIn("## 2026-04-20", content)
+        self.assertIn("## 2026-04-21", content)
+        self.assertIn("NousResearch/hermes-agent", content)
 
 
 if __name__ == "__main__":

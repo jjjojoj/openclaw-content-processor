@@ -24,8 +24,10 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - Unit tests now cover chat-completions parsing and knowledge-card note generation
 - Coding-plan analysis now defaults to `glm-4.7`, instead of probing `glm-5` first
 - BigModel / z.ai `chat/completions` summary requests now disable `thinking` by default so `glm-4.7` returns final answer text instead of reasoning-only payloads
-- GitHub cards now use repository-specific summaries, method checkpoints, branch tags, and category links instead of generic web-page sentence ranking
+- GitHub cards now use the exact repository name as the note title, student-learning sections, repository-specific summaries, method checkpoints, branch tags, and category links instead of generic web-page sentence ranking
 - Knowledge-card notes no longer dump full raw content for high-confidence web / GitHub captures; folded evidence is only shown for lower-confidence fallback cases or transcript-style media
+- Obsidian knowledge indexes now insert new cards under the correct date heading instead of appending entries into the wrong day block
+- README and `.env.example` now clarify that Feishu is unsupported and that `auto` output switches to Obsidian as soon as a vault path is configured
 
 ## [2.4.0] - 2026-04-19
 

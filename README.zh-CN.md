@@ -7,7 +7,7 @@
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`openclaw-content-processor` 是一个 OpenClaw skill，也是一个可独立运行的命令行工具。它会接收一个或多个分享链接，按来源类型自动抓取、清洗、归纳，并输出本地 Markdown + JSON 结果。现在也支持直接写入 Obsidian Vault，默认生成 knowledge-card 单卡片笔记，同时保留 legacy digest 布局作为兼容模式。
+`openclaw-content-processor` 是一个 OpenClaw skill，也是一个可独立运行的命令行工具。它会接收一个或多个分享链接，按来源类型自动抓取、清洗、归纳，并在配置好 Obsidian Vault 后默认直接写入 Vault，生成 knowledge-card 单卡片笔记。桌面输出只保留为兼容路径。
 
 ![报告预览](./assets/report-preview.svg)
 
@@ -24,7 +24,7 @@
 - Obsidian 导出正式升为一级输出模式，支持 YAML frontmatter 和逐来源独立笔记。
 - 抖音链路更稳了：已有认证 -> 扫码登录重试 -> Playwright 网络拦截下载兜底。
 - 仅用于转写的临时 mp4 会在转写完成后自动清理，不再堆在输出目录里。
-- 飞书 / 飞书知识库上传不属于当前版本支持范围，当前支持的输出目标只有本地桌面报告和 Obsidian Vault。
+- 飞书 / 飞书知识库上传不属于当前版本支持范围；当你配置好 Obsidian Vault 后，默认输出目标就是 Obsidian Vault。
 
 ## 用 OpenClaw 安装
 
@@ -137,13 +137,13 @@ CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
 
 ### 3. 直接运行
 
-桌面 / 本地报告模式：
+推荐的 Obsidian 工作流：
 
 ```bash
 bash scripts/run.sh "https://github.com/openai/openai-python"
 ```
 
-Obsidian 模式：
+显式 Obsidian 模式：
 
 ```bash
 bash scripts/run.sh \
@@ -249,7 +249,7 @@ python scripts/run_regression.py --preset core
 ~/Desktop/内容摘要/YYYY-MM-DD/<timestamp>/
 ```
 
-桌面模式会生成：
+兼容性的桌面模式仍然会生成：
 
 ```text
 report.md
