@@ -20,7 +20,7 @@ from http.cookiejar import MozillaCookieJar
 from pathlib import Path
 from typing import Iterable
 from urllib.error import HTTPError
-from urllib.parse import urlparse
+from urllib.parse import quote, urlparse
 from urllib.request import Request, urlopen
 
 BOOTSTRAP_SKILL_DIR = Path(__file__).resolve().parent.parent
@@ -241,6 +241,39 @@ GITHUB_CATEGORY_SCENES = {
     "developer-tool": "开发者效率工具、命令行工作流、工程脚手架",
     "llm-app": "LLM 应用、模型接入、中间层服务",
     "uncategorized": "通用开源项目筛选、资料归档、灵感收集",
+}
+GITHUB_PATH_HINTS = {
+    "README.md": "项目定位、使用方式和边界说明的第一入口",
+    "docs": "概念说明、架构文档和补充背景通常在这里",
+    "examples": "最快理解最小可运行闭环的示例入口",
+    "example": "最快理解最小可运行闭环的示例入口",
+    "tests": "用来反推作者如何定义行为边界和正确输出",
+    "src": "核心实现通常集中在这里，适合第二轮精读",
+    "app": "应用主入口或运行时装配层",
+    "apps": "多应用入口或多端实现集合",
+    "web": "Web 界面、控制台或管理后台入口",
+    "frontend": "前端界面层和交互实现",
+    "backend": "后端服务层或业务接口实现",
+    "server": "服务端入口、路由或运行主程序",
+    "api": "接口层、服务暴露层或协议适配层",
+    "gateway": "外部消息入口、网关或平台接入层",
+    "agent": "Agent 主循环、任务编排或执行核心",
+    "core": "核心抽象、关键模型和主逻辑",
+    "tools": "工具能力、外部动作和扩展系统",
+    "models": "模型封装、推理层或数据结构定义",
+    "providers": "不同供应商或后端服务的适配层",
+    "integrations": "第三方集成、平台连接或插件能力",
+    "adapters": "适配层、桥接层和对外接口转换",
+    "scripts": "辅助脚本、运维任务和开发工具",
+    "package.json": "Node 项目的依赖、脚本和启动方式入口",
+    "pyproject.toml": "Python 项目的依赖、构建方式和工具链入口",
+    "requirements.txt": "Python 依赖清单，可快速判断运行环境",
+    "Dockerfile": "部署方式和运行环境假设的入口",
+    "docker-compose.yml": "本地联调和服务编排方式的入口",
+    "main.py": "常见 Python 启动入口",
+    "app.py": "常见 Web 或服务入口",
+    "cli.py": "命令行入口，适合先跑通再读源码",
+    "run.py": "运行入口或启动脚本",
 }
 
 STOP_WORDS = {
@@ -738,6 +771,7 @@ def parse_analysis_sections(text: str) -> dict[str, str]:
         "core_value": "",
         "scenarios": "",
         "learning_points": "",
+        "key_paths": "",
         "methods": "",
         "categories": "",
         "concerns": "",
@@ -748,13 +782,15 @@ def parse_analysis_sections(text: str) -> dict[str, str]:
             continue
         if cleaned.startswith("卡片标题："):
             sections["card_title"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("核心价值：") or cleaned.startswith("一句话定位："):
+        elif cleaned.startswith("核心价值：") or cleaned.startswith("一句话定位：") or cleaned.startswith("项目定位："):
             sections["core_value"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("适用场景：") or cleaned.startswith("适合阶段："):
+        elif cleaned.startswith("适用场景：") or cleaned.startswith("适合阶段：") or cleaned.startswith("解决的问题："):
             sections["scenarios"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("你会学到："):
+        elif cleaned.startswith("你会学到：") or cleaned.startswith("架构拆解："):
             sections["learning_points"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("方法要点：") or cleaned.startswith("推荐学习路径："):
+        elif cleaned.startswith("关键目录/文件："):
+            sections["key_paths"] = normalize_space(cleaned.split("：", 1)[1])
+        elif cleaned.startswith("方法要点：") or cleaned.startswith("推荐学习路径：") or cleaned.startswith("建议怎么上手："):
             sections["methods"] = normalize_space(cleaned.split("：", 1)[1])
         elif cleaned.startswith("分类："):
             sections["categories"] = normalize_space(cleaned.split("：", 1)[1])
@@ -1165,7 +1201,53 @@ def decode_base64_text(value: str) -> str | None:
         return None
 
 
+def extract_markdown_headings(text: str, limit: int = 8) -> list[str]:
+    headings: list[str] = []
+    seen: set[str] = set()
+    for raw_line in str(text or "").splitlines():
+        line = raw_line.strip()
+        if not re.match(r"^#{1,6}\s+", line):
+            continue
+        heading = normalize_space(re.sub(r"^#{1,6}\s+", "", line))
+        if not heading:
+            continue
+        key = heading.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        headings.append(heading)
+        if len(headings) >= limit:
+            break
+    return headings
+
+
+def summarize_github_root_entries(
+    payload: dict[str, object] | list[object] | None,
+    limit: int = 16,
+) -> tuple[list[str], list[str]]:
+    if not isinstance(payload, list):
+        return [], []
+
+    dirs: list[str] = []
+    files: list[str] = []
+    for entry in payload:
+        if not isinstance(entry, dict):
+            continue
+        name = normalize_space(str(entry.get("name") or ""))
+        kind = normalize_space(str(entry.get("type") or ""))
+        if not name:
+            continue
+        if kind == "dir":
+            dirs.append(name)
+        elif kind == "file":
+            files.append(name)
+    return dirs[:limit], files[:limit]
+
+
 def build_github_content(repo_data: dict[str, object], readme_text: str) -> str:
+    readme_headings = extract_markdown_headings(readme_text)
+    root_dirs = repo_data.get("_root_dirs") or []
+    root_files = repo_data.get("_root_files") or []
     lines = [
         f"Repository: {repo_data.get('full_name') or ''}",
         f"Description: {repo_data.get('description') or ''}",
@@ -1177,6 +1259,9 @@ def build_github_content(repo_data: dict[str, object], readme_text: str) -> str:
         f"Default branch: {repo_data.get('default_branch') or ''}",
         f"Homepage: {repo_data.get('homepage') or ''}",
         f"Latest update: {repo_data.get('updated_at') or ''}",
+        f"Top-level directories: {', '.join(root_dirs)}",
+        f"Top-level files: {', '.join(root_files)}",
+        f"README headings: {', '.join(readme_headings)}",
         "",
         "README",
         "",
@@ -1228,6 +1313,20 @@ def extract_github_repo(
         warnings.extend(raw_warnings)
         readme_text = raw_text or ""
 
+    root_dirs: list[str] = []
+    root_files: list[str] = []
+    default_branch = str(repo_payload.get("default_branch") or "main")
+    contents_url = (
+        f"{GITHUB_API_BASE}/repos/{owner}/{repo}/contents"
+        f"?ref={quote(default_branch, safe='')}"
+    )
+    contents_payload, contents_warnings = fetch_json_url(contents_url, headers=headers)
+    warnings.extend(contents_warnings)
+    root_dirs, root_files = summarize_github_root_entries(contents_payload)
+    repo_payload["_root_dirs"] = root_dirs
+    repo_payload["_root_files"] = root_files
+    readme_headings = extract_markdown_headings(readme_text)
+
     content = build_github_content(repo_payload, readme_text or "README unavailable.")
     source_metadata = {
         "full_name": repo_payload.get("full_name") or f"{owner}/{repo}",
@@ -1246,6 +1345,9 @@ def extract_github_repo(
         "default_branch": repo_payload.get("default_branch") or "",
         "updated_at": repo_payload.get("updated_at") or "",
         "readme_available": bool(readme_text.strip()),
+        "root_dirs": root_dirs,
+        "root_files": root_files,
+        "readme_headings": readme_headings,
     }
     return source_metadata, content, "github api + readme", warnings
 
@@ -1808,6 +1910,18 @@ def collect_github_signal_text(item: dict[str, object]) -> str:
         text = normalize_space(str(value))
         if text:
             parts.append(text)
+    for value in metadata.get("root_dirs") or []:
+        text = normalize_space(str(value))
+        if text:
+            parts.append(text)
+    for value in metadata.get("root_files") or []:
+        text = normalize_space(str(value))
+        if text:
+            parts.append(text)
+    for value in metadata.get("readme_headings") or []:
+        text = normalize_space(str(value))
+        if text:
+            parts.append(text)
     for key in ["description", "language", "full_name"]:
         text = normalize_space(str(metadata.get(key) or ""))
         if text:
@@ -1856,6 +1970,39 @@ def extract_github_topics(item: dict[str, object]) -> list[str]:
         seen.add(key)
         topics.append(topic)
     return topics[:8]
+
+
+def extract_github_root_dirs(item: dict[str, object]) -> list[str]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    values: list[str] = []
+    for value in metadata.get("root_dirs") or []:
+        text = normalize_space(str(value))
+        if text:
+            values.append(text)
+    return values[:12]
+
+
+def extract_github_root_files(item: dict[str, object]) -> list[str]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    values: list[str] = []
+    for value in metadata.get("root_files") or []:
+        text = normalize_space(str(value))
+        if text:
+            values.append(text)
+    return values[:12]
+
+
+def extract_github_readme_headings(item: dict[str, object]) -> list[str]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    values: list[str] = []
+    for value in metadata.get("readme_headings") or []:
+        text = normalize_space(str(value))
+        if text:
+            values.append(text)
+    return values[:8]
 
 
 def derive_github_capabilities(item: dict[str, object]) -> list[str]:
@@ -1927,18 +2074,84 @@ def build_github_highlights(item: dict[str, object]) -> list[str]:
     return [shorten(value, 180) for value in highlights[:4]]
 
 
-def build_github_method_points(item: dict[str, object]) -> list[str]:
+def build_github_problem_points(item: dict[str, object]) -> list[str]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    description = normalize_space(str(metadata.get("description") or ""))
+    categories = [format_github_category_label(value) for value in derive_github_categories(item)]
+    headings = extract_github_readme_headings(item)
+    topics = extract_github_topics(item)
+
+    points: list[str] = []
+    if description:
+        points.append(description.rstrip("。") + "。")
+    if categories:
+        points.append("项目方向更接近 " + " / ".join(dict.fromkeys(categories)) + "，适合拿来拆真实工程方案，而不只是看 demo。")
+    if headings:
+        points.append("README 重点覆盖 " + "、".join(headings[:3]) + "，说明作者至少对概念、使用方式或架构边界做了公开说明。")
+    elif topics:
+        points.append("从 Topics 看，重点会落在 " + "、".join(topics[:4]) + " 这些能力域。")
+    return [shorten(value, 180) for value in points[:3]]
+
+
+def build_github_architecture_points(item: dict[str, object]) -> list[str]:
+    dirs = set(extract_github_root_dirs(item))
+    files = set(extract_github_root_files(item))
+    capabilities = derive_github_capabilities(item)
+    points: list[str] = []
+
+    if {"web", "frontend", "ui"} & dirs:
+        points.append("界面层：仓库里有 `web/`、`frontend/` 或同类目录，通常负责控制台、展示层或用户交互。")
+    if {"gateway", "server", "backend", "api"} & dirs:
+        points.append("接入层：`gateway/`、`server/`、`api/` 这类目录通常承接外部请求、平台接入或服务暴露。")
+    if {"agent", "core", "src", "app"} & dirs:
+        points.append("核心逻辑层：`agent/`、`core/`、`src/`、`app/` 往往是主循环、业务编排或核心实现所在。")
+    if {"tools", "models", "providers", "integrations", "adapters"} & dirs:
+        points.append("扩展/适配层：`tools/`、`providers/`、`integrations/` 这类目录通常放工具系统、模型适配和第三方连接。")
+    if not points and capabilities:
+        for capability in capabilities[:3]:
+            points.append(f"能力线索：这个仓库至少有一层在处理“{capability}”这类核心能力。")
+    if not points and files:
+        points.append("顶层文件比目录更突出，说明它可能是轻量项目，入口和配置比复杂分层更重要。")
+    return [shorten(value, 180) for value in points[:4]]
+
+
+def build_github_key_path_points(item: dict[str, object]) -> list[str]:
+    dirs = extract_github_root_dirs(item)
+    files = extract_github_root_files(item)
+    candidates = ["README.md", *dirs, *files]
+    points: list[str] = []
+    seen: set[str] = set()
+    for name in candidates:
+        if name in seen:
+            continue
+        seen.add(name)
+        hint = GITHUB_PATH_HINTS.get(name)
+        if not hint:
+            continue
+        points.append(f"`{name}`：{hint}")
+        if len(points) >= 4:
+            break
+    if not points:
+        repo_name = github_repo_name(item)
+        points.append(f"`README.md`：先确认 {repo_name} 的定位、安装方式和你要追的主问题。")
+    return [shorten(value, 180) for value in points[:4]]
+
+
+def build_github_onramp_points(item: dict[str, object]) -> list[str]:
     source_metadata = item.get("source_metadata")
     metadata = source_metadata if isinstance(source_metadata, dict) else {}
     repo_name = str(metadata.get("full_name") or item.get("title") or "该仓库")
     methods: list[str] = [
         f"先读 {repo_name} 的 README、Docs 和 Quickstart，确认它解决什么问题，以及你为什么要学它。",
         "然后把项目真的跑起来，优先走最短路径：安装、示例、核心命令或 demo，而不是一开始就埋头看源码。",
-        "最后再顺着核心模块往里读，比如记忆、调度、模型抽象或 API 层，边读边记录你能复用到自己项目里的设计。",
+        "最后再沿着入口文件 -> 核心目录 -> 扩展目录这条线往里读，边读边记你想迁移到自己项目里的设计。",
     ]
-    capabilities = derive_github_capabilities(item)
-    if capabilities:
-        methods[2] = "最后重点拆 " + "、".join(capabilities[:2]) + " 这两层设计，边读边记录哪些做法值得迁移到你自己的练手项目里。"
+    key_paths = build_github_key_path_points(item)
+    if key_paths:
+        methods[2] = "第三步优先沿着 " + "、".join(
+            re.sub(r"^`([^`]+)`.*$", r"\1", value) for value in key_paths[:2]
+        ) + " 这几个入口往里读，再决定要不要深挖完整源码。"
     return [shorten(value, 180) for value in methods[:3]]
 
 
@@ -1951,20 +2164,21 @@ def build_local_item_analysis(item: dict[str, object]) -> str:
     metadata = source_metadata if isinstance(source_metadata, dict) else {}
 
     if str(item.get("platform_key") or "") == "github":
-        stars = metadata.get("stargazers_count") or 0
-        language = str(metadata.get("language") or "未识别")
         description = build_github_summary(item)
-        learning_points = "；".join(build_github_highlights(item))
-        focus = "；".join(build_github_method_points(item))
+        problems = "；".join(build_github_problem_points(item))
+        architecture = "；".join(build_github_architecture_points(item))
+        key_paths = "；".join(build_github_key_path_points(item))
+        focus = "；".join(build_github_onramp_points(item))
         categories = ", ".join(format_github_category_label(value) for value in derive_github_categories(item))
         return "\n".join([
             f"卡片标题：{github_repo_name(item)}",
-            f"一句话定位：{shorten(description, 120)}",
-            f"适合阶段：这是一个 {language} 项目，当前约 {stars} stars，适合学生用来做开源项目筛选、README 拆解和工程学习。",
-            f"你会学到：{learning_points}",
-            f"推荐学习路径：{focus}",
+            f"项目定位：{shorten(description, 120)}",
+            f"解决的问题：{problems}",
+            f"架构拆解：{architecture}",
+            f"关键目录/文件：{key_paths}",
+            f"建议怎么上手：{focus}",
             f"分类：{categories or 'GitHub 项目'}",
-            "学习提醒：不要把安装命令、徽章和导航区当成项目核心，优先看 README 里的问题定义、系统边界、核心模块和实际运行方式。",
+            "学习提醒：不要只看 stars 和宣传语，优先核对 README、顶层目录、入口文件和真实运行方式，再判断这个仓库值不值得深挖。",
         ])
 
     lead = highlights[0] if highlights else summary or f"{platform} 内容已完成抽取。"
@@ -2227,22 +2441,24 @@ def build_item_analysis_prompt(item: dict[str, object]) -> str:
     highlights = "\n".join(f"- {value}" for value in list(item.get("highlights") or [])[:3])
     if str(item.get("platform_key") or "") == "github":
         return "\n".join([
-            "你是一个帮助学生挑选开源项目学习的 GitHub 学习教练。请用中文输出固定标签短卡片，每行一个标签：",
+            "你是一个专门拆 GitHub 仓库的学习助手。请参考 DeepWiki 那种“先讲定位，再讲架构，再讲关键目录”的思路，用中文输出固定标签短卡片，每行一个标签：",
             "卡片标题：owner/repo",
-            "一句话定位：...",
-            "适合阶段：...",
-            "你会学到：1) ...；2) ...；3) ...",
-            "推荐学习路径：1) ...；2) ...；3) ...",
+            "项目定位：...",
+            "解决的问题：1) ...；2) ...；3) ...",
+            "架构拆解：1) ...；2) ...；3) ...",
+            "关键目录/文件：1) ...；2) ...；3) ...",
+            "建议怎么上手：1) ...；2) ...；3) ...",
             "分类：AI Agent, SaaS, FastAPI 这类短标签，最多 3 个",
             "学习提醒：...",
             "",
             "要求：",
             "1. 卡片标题必须只写 GitHub 仓库名 owner/repo，不要加副标题。",
-            "2. 不要把 Repository、Homepage、安装命令、徽章导航当成学习重点。",
-            "3. 一句话定位要回答“学生为什么值得拿它来学”。",
-            "4. 你会学到要写成具体能力点，不要写空泛夸赞。",
-            "5. 推荐学习路径要适合学生上手：先读哪、先跑哪、再拆哪。",
-            "6. 分类要尽量产品化、技术方向化，比如 AI Agent / SaaS / FastAPI / Automation。",
+            "2. 不要把 Repository、Homepage、安装命令、徽章导航当成重点内容。",
+            "3. 项目定位要回答“这个仓库到底是干什么的，为什么值得拆”。",
+            "4. 架构拆解要尽量按层说明，比如入口层 / 核心逻辑层 / 扩展层，不要空泛夸赞。",
+            "5. 关键目录/文件必须尽量引用真实路径名，例如 README.md、docs/、src/、web/、cli.py。",
+            "6. 建议怎么上手要适合学生：先看哪、先跑哪、再沿什么路径深入。",
+            "7. 分类要尽量产品化、技术方向化，比如 AI Agent / SaaS / FastAPI / Automation。",
             "",
             f"标题：{item.get('title') or ''}",
             f"作者/组织：{item.get('author') or ''}",
@@ -2908,10 +3124,6 @@ def render_knowledge_card_note(
     sections = parse_analysis_sections(str(item.get("analysis") or ""))
     is_github = str(item.get("platform_key") or "") == "github"
     lead = sections["core_value"] or str(item.get("summary") or "").strip() or str(item.get("title") or "这条内容值得继续关注。")
-    scenario_entries = split_structured_list(sections["scenarios"])
-    if not scenario_entries:
-        scenario_text = sections["scenarios"] or "适合先快速消化这条内容的核心观点，再决定是否继续深挖原始链接。"
-        scenario_entries = [scenario_text]
     concern_entries = split_structured_list(sections["concerns"])
     if not concern_entries:
         concern_text = sections["concerns"] or "建议结合原始链接和转录内容，核对细节后再作为行动依据。"
@@ -2926,12 +3138,27 @@ def render_knowledge_card_note(
         summary = str(item.get("summary") or "").strip()
         if summary:
             highlights = split_sentences(summary)[:3] or [summary]
-    learning_entries = split_structured_list(sections["learning_points"])
-    if not learning_entries and is_github:
-        learning_entries = highlights[:4] or build_github_highlights(item)
+    scenario_entries = split_structured_list(sections["scenarios"])
+    if not scenario_entries:
+        if is_github:
+            scenario_entries = build_github_problem_points(item)
+        if not scenario_entries:
+            scenario_text = sections["scenarios"] or "适合先快速消化这条内容的核心观点，再决定是否继续深挖原始链接。"
+            scenario_entries = [scenario_text]
+    architecture_entries = split_structured_list(sections["learning_points"])
+    key_path_entries = split_structured_list(sections["key_paths"])
     method_points = split_structured_list(sections["methods"])
-    if not method_points and is_github:
-        method_points = build_github_method_points(item)
+    if is_github:
+        if not architecture_entries:
+            architecture_entries = build_github_architecture_points(item)
+        if not key_path_entries:
+            key_path_entries = build_github_key_path_points(item)
+        if not method_points:
+            method_points = build_github_onramp_points(item)
+    if not architecture_entries:
+        architecture_entries = highlights[:4]
+    if not key_path_entries and is_github:
+        key_path_entries = build_github_key_path_points(item)
     if not method_points:
         method_points = highlights[:4]
     warnings = [str(value).strip() for value in list(item.get("warnings") or []) if str(value).strip()]
@@ -2993,23 +3220,32 @@ def render_knowledge_card_note(
 
     if is_github:
         lines.extend([
-            "## 适合什么阶段",
+            "## 这个项目在解决什么",
             "",
         ])
         for scenario in scenario_entries[:4]:
             lines.append(f"- {scenario}")
         lines.extend([
             "",
-            "## 学这个项目你会学到什么",
+            "## 系统是怎么拆的",
             "",
         ])
-        for learning in learning_entries[:4]:
+        for learning in architecture_entries[:4]:
             lines.append(f"- {learning}")
-        if not learning_entries:
+        if not architecture_entries:
             lines.append("- 先从 README、目录结构和示例用法里提炼你想复用的工程做法。")
         lines.extend([
             "",
-            "## 推荐学习路径",
+            "## 先看哪些目录 / 文件",
+            "",
+        ])
+        for point in key_path_entries[:4]:
+            lines.append(f"- {point}")
+        if not key_path_entries:
+            lines.append("- 先看 README 和最小运行入口，再决定往哪个目录深挖。")
+        lines.extend([
+            "",
+            "## 建议怎么上手",
             "",
         ])
         for point in method_points[:4]:

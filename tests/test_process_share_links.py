@@ -421,30 +421,34 @@ class ContentProcessorTests(unittest.TestCase):
                 "language": "TypeScript",
                 "stargazers_count": 1000,
                 "topics": ["ui", "components"],
+                "root_dirs": ["docs", "src", "examples"],
+                "root_files": ["README.md", "package.json"],
             },
         })
         self.assertIn("卡片标题：", text)
-        self.assertIn("一句话定位：", text)
-        self.assertIn("你会学到：", text)
-        self.assertIn("推荐学习路径：", text)
-        self.assertIn("TypeScript", text)
-        self.assertIn("1000", text)
+        self.assertIn("项目定位：", text)
+        self.assertIn("架构拆解：", text)
+        self.assertIn("关键目录/文件：", text)
+        self.assertIn("建议怎么上手：", text)
+        self.assertIn("README.md", text)
 
     def test_parse_analysis_sections_extracts_github_card_fields(self) -> None:
         sections = MODULE.parse_analysis_sections(
             "\n".join([
                 "卡片标题：NousResearch/hermes-agent",
-                "一句话定位：一个带学习循环的 Agent 框架。",
-                "适合阶段：学过 Python、想找真实开源项目练手的学生",
-                "你会学到：1) Agent 记忆；2) 多模型切换；3) 调度设计",
-                "推荐学习路径：1) 先看 README；2) 再看 tools；3) 最后看维护状态",
+                "项目定位：一个带学习循环的 Agent 框架。",
+                "解决的问题：1) 降低 Agent 落地门槛；2) 统一多平台入口；3) 支持长期运行",
+                "架构拆解：1) Agent 主循环；2) 工具系统；3) 模型适配层",
+                "关键目录/文件：1) README.md；2) agent/；3) tools/",
+                "建议怎么上手：1) 先看 README；2) 再看 tools；3) 最后看维护状态",
                 "分类：AI Agent, Automation",
                 "学习提醒：确认权限边界和动作审计。",
             ])
         )
         self.assertEqual(sections["card_title"], "NousResearch/hermes-agent")
-        self.assertIn("真实开源项目练手", sections["scenarios"])
-        self.assertIn("Agent 记忆", sections["learning_points"])
+        self.assertIn("统一多平台入口", sections["scenarios"])
+        self.assertIn("工具系统", sections["learning_points"])
+        self.assertIn("README.md", sections["key_paths"])
         self.assertIn("README", sections["methods"])
         self.assertIn("AI Agent", sections["categories"])
 
@@ -843,10 +847,11 @@ class ContentProcessorTests(unittest.TestCase):
             "summary": "NousResearch/hermes-agent 是一个 AI Agent 项目。",
             "analysis": "\n".join([
                 "卡片标题：NousResearch/hermes-agent",
-                "一句话定位：一个带学习循环的 AI Agent 框架。",
-                "适合阶段：学过 Python、想找真实开源项目练手的学生",
-                "你会学到：1) Agent 记忆；2) 多模型切换；3) 调度设计",
-                "推荐学习路径：1) 先看 README；2) 核对 skills 和 cron；3) 再看维护状态",
+                "项目定位：一个带学习循环的 AI Agent 框架。",
+                "解决的问题：1) 降低 Agent 落地门槛；2) 支持长期运行；3) 统一多平台入口",
+                "架构拆解：1) Agent 主循环；2) 工具系统；3) 模型适配层",
+                "关键目录/文件：1) README.md；2) agent/；3) tools/",
+                "建议怎么上手：1) 先看 README；2) 核对 skills 和 cron；3) 再看维护状态",
                 "分类：AI Agent, Automation",
                 "学习提醒：确认权限边界和动作审计。",
             ]),
@@ -859,6 +864,8 @@ class ContentProcessorTests(unittest.TestCase):
                 "language": "Python",
                 "stargazers_count": 48000,
                 "topics": ["ai-agent", "automation", "discord"],
+                "root_dirs": ["agent", "tools", "web"],
+                "root_files": ["README.md", "run_agent.py"],
             },
         }
         with tempfile.TemporaryDirectory() as tmp:
@@ -878,11 +885,13 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn('knowledge_branch: "GitHub"', content)
         self.assertIn("# NousResearch/hermes-agent", content)
         self.assertIn("GitHub 仓库", content)
-        self.assertIn("## 适合什么阶段", content)
-        self.assertIn("## 学这个项目你会学到什么", content)
-        self.assertIn("## 推荐学习路径", content)
+        self.assertIn("## 这个项目在解决什么", content)
+        self.assertIn("## 系统是怎么拆的", content)
+        self.assertIn("## 先看哪些目录 / 文件", content)
+        self.assertIn("## 建议怎么上手", content)
         self.assertIn("## 学习提醒", content)
         self.assertIn("先看 README", content)
+        self.assertIn("README.md", content)
         self.assertNotIn("## 原始转录", content)
         self.assertNotIn("## 抓取证据", content)
 
