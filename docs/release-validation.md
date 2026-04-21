@@ -22,6 +22,11 @@ Latest local outcome on `2026-04-19`:
 - `py_compile`: passed
 - `unittest`: passed (`33` tests)
 
+Current local validation after the latest GLM + Douyin hardening:
+
+- `py_compile`: passed
+- `unittest`: passed (`44` tests)
+
 ## Automated Live Regression
 
 The lightweight public-link regression entrypoint is:
@@ -73,6 +78,27 @@ Notes:
 - Social-platform success rates can change over time because anti-bot behavior changes.
 - Cookie, browser-session, and referer support exist for users who need stronger access stability.
 - Feishu / Feishu Wiki upload is not part of the release gate. Supported delivery targets in `v2.4.0` are local desktop output and Obsidian export.
+
+## CI vs Self-Hosted Runner Strategy
+
+Recommended split:
+
+- public CI:
+  - runtime bootstrap
+  - compile checks
+  - unit tests
+  - lightweight public-link regression
+  - mocked Douyin auth gating and fallback logic
+- self-hosted runner / desktop smoke test:
+  - real Douyin QR login
+  - saved-cookie reuse
+  - Playwright media fallback on a real share link
+
+Important note:
+
+- Public CI should not attempt real Douyin QR login.
+- Real QR login is only appropriate in a self-hosted runner, VNC session, or remote desktop where a human can actually scan the code.
+- If such an environment is intentionally used, the login gate can be opened explicitly with `CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1`.
 
 ## Stable Release Gate
 

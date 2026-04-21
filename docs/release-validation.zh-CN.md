@@ -22,6 +22,11 @@ bash scripts/bootstrap.sh
 - `py_compile`：通过
 - `unittest`：通过（`33` 项）
 
+最近一次本地加固后的验证结果：
+
+- `py_compile`：通过
+- `unittest`：通过（`44` 项）
+
 ## 自动化真实链接回归
 
 轻量公开样本回归入口：
@@ -73,6 +78,27 @@ bash scripts/bootstrap.sh
 - 社媒平台的成功率会随着反爬策略变化而波动。
 - 如果业务场景需要更稳定的访问，当前仓库已经支持 cookie、browser session 和 referer。
 - 飞书 / 飞书知识库上传不属于 `v2.4.0` 的发布范围，当前支持的交付目标只有桌面本地结果和 Obsidian 导出。
+
+## 公共 CI 与自托管 Runner 的测试分层
+
+推荐策略：
+
+- 公共 CI：
+  - runtime bootstrap
+  - compile 检查
+  - 单测
+  - 轻量公开链接回归
+  - 抖音登录门禁与 fallback 逻辑的 mock 测试
+- 自托管 runner / 本地桌面 smoke test：
+  - 真实抖音二维码登录
+  - 已保存 cookie 的复用验证
+  - Playwright 媒体兜底在真实分享链接上的验证
+
+重要说明：
+
+- 公共 CI 不应该真的执行抖音二维码登录。
+- 真实扫码登录只适合放在带桌面、VNC 或远程桌面、且现场有人能扫码的环境里。
+- 如果你确实在这种环境中跑自动化，可以显式设置 `CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1` 来放开这道门。
 
 ## 稳定版发布门槛
 

@@ -285,7 +285,7 @@ CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
 
 **已知限制**：
 - 智谱 GLM 不支持 OpenAI Responses API（`/v1/responses` → 404），必须走 `/chat/completions`
-- 如果复用 OpenClaw 的 `zai` coding-plan 配置，优先探测 `glm-5`，不行自动回退到 `glm-4.7`
+- 如果复用 OpenClaw 的 `zai` coding-plan 配置，默认分析模型固定为 `glm-4.7`
 - coding-plan 场景默认不再推荐 `flash / flashx` 作为分析模型
 - MiniMax API 同样不支持 Responses API
 - 术语纠正和专有名词校准目前仍主要依赖 prompt / 人工校对，不是独立的后处理模块
@@ -378,7 +378,7 @@ tags:
 ### 知识卡片生成流程
 
 1. **抓取内容**：走 content-processor 正常链路（playwright/yt-dlp/whisper）
-2. **GLM 结构化提炼**：优先复用 OpenClaw 本地 `zai` provider，coding-plan 下优先 `glm-5`，否则回退 `glm-4.7`
+2. **GLM 结构化提炼**：优先复用 OpenClaw 本地 `zai` provider，coding-plan 默认使用 `glm-4.7`
 3. **写入知识卡片**：按模板写入 Obsidian Vault
 4. **更新索引**：追加 `_index.md` 和 `_log.md`
 5. **汇报用户**：保存路径 + 核心结论

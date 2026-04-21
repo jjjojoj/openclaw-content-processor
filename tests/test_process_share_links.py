@@ -112,6 +112,47 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertEqual(request_options.cookie_header, "")
         self.assertTrue(request_options.douyin_login_attempted)
 
+    def test_can_attempt_douyin_login_allows_non_tty_override(self) -> None:
+        request_options = MODULE.RequestOptions(auto_login_douyin=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            helper_script = Path(tmp) / "douyin_auth.py"
+            helper_script.write_text("# helper\n", encoding="utf-8")
+            with (
+                mock.patch.object(MODULE, "DOUYIN_AUTH_SCRIPT", helper_script),
+                mock.patch.dict(MODULE.os.environ, {"CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN": "1"}, clear=False),
+                mock.patch.object(MODULE.sys.stdin, "isatty", return_value=False),
+                mock.patch.object(MODULE.sys.stdout, "isatty", return_value=False),
+            ):
+                self.assertTrue(MODULE.can_attempt_douyin_login(request_options))
+
+    def test_maybe_run_douyin_login_allows_non_tty_override(self) -> None:
+        payload = {"status": "success", "cookies_txt": "/tmp/cookies.txt"}
+        completed = MODULE.subprocess.CompletedProcess(
+            args=["python3"],
+            returncode=0,
+            stdout=MODULE.json.dumps(payload, ensure_ascii=False),
+            stderr="",
+        )
+        request_options = MODULE.RequestOptions(auto_login_douyin=True)
+        with tempfile.TemporaryDirectory() as tmp:
+            helper_script = Path(tmp) / "douyin_auth.py"
+            helper_script.write_text("# helper\n", encoding="utf-8")
+            cookie_file = Path(tmp) / "cookies.txt"
+            cookie_file.write_text("# Netscape HTTP Cookie File\n", encoding="utf-8")
+            with (
+                mock.patch.object(MODULE, "DOUYIN_AUTH_SCRIPT", helper_script),
+                mock.patch.object(MODULE, "DOUYIN_AUTH_COOKIES_FILE", cookie_file),
+                mock.patch.object(MODULE, "run_command", return_value=completed),
+                mock.patch.dict(MODULE.os.environ, {"CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN": "1"}, clear=False),
+                mock.patch.object(MODULE.sys.stdin, "isatty", return_value=False),
+                mock.patch.object(MODULE.sys.stdout, "isatty", return_value=False),
+            ):
+                login_payload, warnings = MODULE.maybe_run_douyin_login(request_options)
+
+        self.assertEqual(login_payload["status"], "success")
+        self.assertEqual(warnings, [])
+        self.assertEqual(request_options.cookies_file, str(cookie_file))
+
     def test_cleanup_transient_media_file_removes_only_tmpdir_files(self) -> None:
         with tempfile.TemporaryDirectory() as tmp:
             tmpdir = Path(tmp)
@@ -200,22 +241,15 @@ class ContentProcessorTests(unittest.TestCase):
                 )
                 self.assertEqual(MODULE.os.environ["CONTENT_PROCESSOR_ANALYSIS_MODEL"], "glm-4.7")
 
-    def test_resolve_effective_analysis_model_prefers_detected_zai_coding_model(self) -> None:
-        with mock.patch.object(MODULE, "detect_zai_coding_model", return_value="glm-5"):
-            model_id = MODULE.resolve_effective_analysis_model(
-                "glm-4.7-flash",
-                "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
-                "test-key",
-            )
-        self.assertEqual(model_id, "glm-5")
+    def test_choose_openclaw_zai_model_id_defaults_to_glm_4_7(self) -> None:
+        model_id = MODULE.choose_openclaw_zai_model_id(["glm-5", "glm-4.7", "glm-4.7-flash"])
+        self.assertEqual(model_id, "glm-4.7")
 
     def test_resolve_effective_analysis_model_falls_back_from_flash_on_coding_endpoint(self) -> None:
-        with mock.patch.object(MODULE, "detect_zai_coding_model", return_value=None):
-            model_id = MODULE.resolve_effective_analysis_model(
-                "glm-4.7-flash",
-                "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
-                "test-key",
-            )
+        model_id = MODULE.resolve_effective_analysis_model(
+            "glm-4.7-flash",
+            "https://open.bigmodel.cn/api/coding/paas/v4/chat/completions",
+        )
         self.assertEqual(model_id, "glm-4.7")
 
     def test_request_llm_analysis_supports_chat_completions_payload(self) -> None:

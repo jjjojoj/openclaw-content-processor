@@ -131,7 +131,7 @@ CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1
 CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
 ```
 
-启用后，skill 会直接读取 `~/.openclaw/openclaw.json` 里的本地 `zai` provider 配置，并在 coding-plan 端点上优先探测 `glm-5`，不行就自动回退 `glm-4.7`。默认不再推荐把 `flash` 当 coding-plan 的分析模型。
+启用后，skill 会直接读取 `~/.openclaw/openclaw.json` 里的本地 `zai` provider 配置。coding-plan 场景默认分析模型固定为 `glm-4.7`，也不再推荐把 `flash` 当默认分析模型。
 
 ### 3. 直接运行
 
@@ -207,6 +207,13 @@ bash scripts/run.sh --login-douyin
 
 ```bash
 bash scripts/run.sh --resolve-douyin-url "https://v.douyin.com/xxxxxxxx/"
+```
+
+如果你是在自托管 runner、VNC 会话或远程桌面环境里，并且现场确实有人可以扫码，也可以显式放开“非 TTY 允许扫码登录”：
+
+```bash
+CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1 \
+bash scripts/run.sh --login-douyin
 ```
 
 ### 用 OpenClaw 的 GLM 做分析
@@ -383,7 +390,12 @@ GitHub Actions 当前会跑：
 - Python compile check
 - 单测
 
-CI 不会跑所有真实平台的 live regression。
+公共 CI 不会跑所有真实平台的 live regression，也不会真的执行抖音二维码登录。
+
+推荐的测试分层是：
+
+- 公共 CI：compile、单测、轻量公开链接回归，以及抖音登录门禁逻辑的 mock 测试
+- 自托管 runner / 本地桌面 smoke test：真实抖音扫码登录、cookie 复用、Playwright 兜底验证
 
 ## 已知限制
 

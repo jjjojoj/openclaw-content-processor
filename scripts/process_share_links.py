@@ -26,8 +26,6 @@ from urllib.request import Request, urlopen
 BOOTSTRAP_SKILL_DIR = Path(__file__).resolve().parent.parent
 FALSEY_ENV_VALUES = {"0", "false", "no", "off"}
 OPENCLAW_CONFIG_DEFAULT = Path.home() / ".openclaw" / "openclaw.json"
-ZAI_CODING_MODEL_CANDIDATES = ("glm-5", "glm-4.7")
-_ZAI_CODING_MODEL_CACHE: dict[tuple[str, str], str | None] = {}
 
 
 def load_local_env(skill_dir: Path) -> None:
@@ -107,7 +105,7 @@ def choose_openclaw_zai_model_id(model_ids: list[str]) -> str:
     if provider_id in {"", "zai"} and model_id and model_id in model_ids:
         return model_id
 
-    for candidate in ("glm-5", "glm-4.7", "glm-5-turbo", "GLM-5-Turbo"):
+    for candidate in ("glm-4.7", "glm-5", "glm-5-turbo", "GLM-5-Turbo"):
         if candidate in model_ids:
             return candidate
 
@@ -836,12 +834,19 @@ def maybe_attach_saved_douyin_auth(
     return request_options
 
 
+def allow_non_tty_douyin_login() -> bool:
+    return env_enabled("CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN", False)
+
+
+def has_douyin_login_console() -> bool:
+    return allow_non_tty_douyin_login() or (sys.stdin.isatty() and sys.stdout.isatty())
+
+
 def can_attempt_douyin_login(request_options: RequestOptions) -> bool:
     return (
         request_options.auto_login_douyin
         and not request_options.douyin_login_attempted
-        and sys.stdin.isatty()
-        and sys.stdout.isatty()
+        and has_douyin_login_console()
         and DOUYIN_AUTH_SCRIPT.exists()
     )
 
@@ -850,8 +855,12 @@ def maybe_run_douyin_login(request_options: RequestOptions, timeout_seconds: int
     request_options.douyin_login_attempted = True
     if not DOUYIN_AUTH_SCRIPT.exists():
         return None, ["缺少 Douyin Playwright helper，无法发起扫码登录。"]
-    if not sys.stdin.isatty() or not sys.stdout.isatty():
-        return None, ["抖音需要登录态，但当前会话不可交互，无法自动发起扫码登录。"]
+    if not has_douyin_login_console():
+        return None, [
+            "抖音需要登录态，但当前会话不可交互，无法自动发起扫码登录。"
+            "如果你在自托管 runner / VNC / 远程桌面环境中确认可以人工扫码，可显式设置 "
+            "CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1 再试。"
+        ]
 
     log("Douyin requires login. Opening a QR login window...")
     login_env = dict(os.environ)
@@ -1885,62 +1894,11 @@ def resolve_openai_api_endpoint() -> tuple[str, str]:
     return f"{base_url}/v1/chat/completions", "chat_completions"
 
 
-def probe_chat_completions_model(base_url: str, api_key: str, model_id: str, timeout: int) -> bool:
-    endpoint = base_url.rstrip("/")
-    if not endpoint.endswith("/chat/completions"):
-        endpoint = f"{endpoint}/chat/completions"
-
-    payload = {
-        "model": model_id,
-        "stream": False,
-        "max_tokens": 1,
-        "messages": [{"role": "user", "content": "ping"}],
-    }
-    request = Request(
-        endpoint,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Authorization": f"Bearer {api_key}",
-            "Content-Type": "application/json",
-        },
-        method="POST",
-    )
-    try:
-        with urlopen(request, timeout=timeout) as response:
-            response.read()
-            return 200 <= response.getcode() < 300
-    except HTTPError:
-        return False
-    except Exception:  # noqa: BLE001
-        return False
-
-
-def detect_zai_coding_model(base_url: str, api_key: str, timeout: int) -> str | None:
-    normalized = base_url.rstrip("/")
-    if "/api/coding/paas/v4" not in normalized:
-        return None
-
-    cache_key = (normalized, api_key)
-    if cache_key in _ZAI_CODING_MODEL_CACHE:
-        return _ZAI_CODING_MODEL_CACHE[cache_key]
-
-    for candidate in ZAI_CODING_MODEL_CANDIDATES:
-        if probe_chat_completions_model(normalized, api_key, candidate, timeout):
-            _ZAI_CODING_MODEL_CACHE[cache_key] = candidate
-            return candidate
-
-    _ZAI_CODING_MODEL_CACHE[cache_key] = None
-    return None
-
-
 def resolve_effective_analysis_model(
     requested_model: str,
     endpoint: str,
-    api_key: str,
 ) -> str:
     model_id = (requested_model or DEFAULT_ANALYSIS_MODEL).strip() or DEFAULT_ANALYSIS_MODEL
-    if not env_enabled("CONTENT_PROCESSOR_AUTO_DETECT_ZAI_MODEL", True):
-        return model_id
 
     normalized = endpoint.rstrip("/")
     if normalized.endswith("/chat/completions"):
@@ -1949,11 +1907,6 @@ def resolve_effective_analysis_model(
         base_url = normalized[: -len("/responses")]
     else:
         base_url = normalized
-
-    timeout = int(os.environ.get("CONTENT_PROCESSOR_ZAI_PROBE_TIMEOUT", "5"))
-    detected = detect_zai_coding_model(base_url, api_key, timeout)
-    if detected:
-        return detected
 
     if "/api/coding/paas/v4" in base_url and "flash" in model_id.lower():
         return "glm-4.7"
@@ -1973,7 +1926,7 @@ def request_llm_analysis(
         return None, None, "未配置可用的 OPENAI_API_KEY / GLM provider。"
 
     endpoint, api_style = resolve_openai_api_endpoint()
-    effective_model = resolve_effective_analysis_model(analysis_options.model, endpoint, api_key)
+    effective_model = resolve_effective_analysis_model(analysis_options.model, endpoint)
     if api_style == "chat_completions":
         request_body = {
             "model": effective_model,

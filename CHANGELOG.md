@@ -14,13 +14,14 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - `--knowledge-card` and `--digest` wrapper flags in `scripts/run.sh`
 - Optional reuse of OpenClaw's local `zai` / GLM Coding Plan provider config via `CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1`
 - Fail-fast LLM availability checks that stop the run instead of silently falling back when analysis is explicitly required
+- Explicit non-TTY Douyin QR-login override for self-hosted runners and remote desktop environments via `CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1`
 
 ### Changed
 
 - Obsidian output now defaults to knowledge-card mode, while the legacy digest layout remains available via `--obsidian-layout digest`
 - `_index.md` and `_log.md` now track knowledge-card notes directly
 - Unit tests now cover chat-completions parsing and knowledge-card note generation
-- Coding-plan model selection now prefers `glm-5` and falls back to `glm-4.7`, instead of recommending `flash` by default
+- Coding-plan analysis now defaults to `glm-4.7`, instead of probing `glm-5` first
 - BigModel / z.ai `chat/completions` summary requests now disable `thinking` by default so `glm-4.7` returns final answer text instead of reasoning-only payloads
 
 ## [2.4.0] - 2026-04-19

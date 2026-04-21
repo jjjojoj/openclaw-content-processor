@@ -131,7 +131,7 @@ CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1
 CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
 ```
 
-When enabled, the skill reads the local `zai` provider from `~/.openclaw/openclaw.json` and reuses that Coding Plan setup. On coding-plan endpoints it probes `glm-5` first and falls back to `glm-4.7` automatically. Flash models are no longer the recommended default for coding-plan analysis.
+When enabled, the skill reads the local `zai` provider from `~/.openclaw/openclaw.json` and reuses that Coding Plan setup. The default coding-plan analysis model is `glm-4.7`. Flash models are no longer the recommended default for coding-plan analysis.
 
 ### 3. Run it
 
@@ -207,6 +207,13 @@ After a successful scan, the skill saves the auth state under `auth/douyin/` and
 
 ```bash
 bash scripts/run.sh --resolve-douyin-url "https://v.douyin.com/xxxxxxxx/"
+```
+
+If you run on a self-hosted runner, VNC session, or remote desktop where a human can actually scan the QR code, you can explicitly allow QR login without a TTY:
+
+```bash
+CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1 \
+bash scripts/run.sh --login-douyin
 ```
 
 ### Use OpenClaw's GLM provider for analysis
@@ -382,7 +389,12 @@ GitHub Actions runs:
 - Python compile checks
 - unit tests
 
-CI does not run all live platform regressions.
+Public CI does not run all live platform regressions, and it does not attempt real Douyin QR login.
+
+Recommended testing split:
+
+- public CI: compile checks, unit tests, lightweight public-link regression, and mocked Douyin auth gating
+- self-hosted runner / desktop smoke test: real Douyin QR login, cookie reuse, and Playwright fallback verification
 
 ## Limitations
 
