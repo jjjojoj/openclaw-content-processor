@@ -21,7 +21,7 @@
   <text x="466" y="244" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18"># Release Readiness Digest</text>
   <text x="466" y="278" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- generated_at: 2026-03-26 10:20</text>
   <text x="466" y="312" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- extractors: github api + readme / Scrapling / yt-dlp / whisper-cli</text>
-  <text x="466" y="346" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- outputs: report.md, report.json, items/*.json</text>
+  <text x="466" y="346" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- outputs: report.md, report.json</text>
   <text x="466" y="380" fill="#D7E6E0" font-family="SFMono-Regular, Menlo, Consolas, monospace" font-size="18">- note: short social clips may become metadata-only partial</text>
 
   <text x="88" y="468" fill="#183A37" font-family="Inter, Segoe UI, sans-serif" font-size="24" font-weight="700">Sample Sources</text>

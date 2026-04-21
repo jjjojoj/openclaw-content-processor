@@ -254,9 +254,6 @@ python scripts/run_regression.py --preset core
 ```text
 report.md
 report.json
-items/
-  source-1.json
-  source-2.json
 ```
 
 Obsidian 模式会生成：
@@ -264,20 +261,17 @@ Obsidian 模式会生成：
 ```text
 <Vault>/<Folder>/
   _index.md
-  _log.md
   YYYY-MM-DD/
     <timestamp_title>/
       Agent 边界控制.md
       report.json
-      items/
-        01_title.json
 ```
 
 其中默认 knowledge-card 导出包含：
 
 - 每个来源 / 链接一条独立知识卡片 markdown
 - 适合 Dataview / 过滤 / 标签的 YAML frontmatter
-- 位于 Vault 根目录下的 `_index.md` 和 `_log.md`
+- 位于 Vault 根目录下的 `_index.md`
 - GitHub 卡片会自动接入 `MOC/GitHub` 以及 `AI Agent`、`SaaS`、`FastAPI`、`Automation` 等分类页
 - 高置信网页 / GitHub 卡片默认不再塞整段原始内容；只有 fallback / 部分成功 / 转写型媒体时才显示折叠证据
 - 默认不再生成 `sources/` 目录
@@ -304,9 +298,7 @@ CLI 结束时会输出一个 JSON 概览，例如：
   "report_title": "GitHub validation",
   "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证",
   "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/OpenAI Python SDK.md",
-  report.json
-  items/
-    01_title.json
+  "report_json": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/report.json"
 ```
 
 ## 抽取策略

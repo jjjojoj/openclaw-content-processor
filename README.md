@@ -254,9 +254,6 @@ Legacy desktop mode can still produce:
 ```text
 report.md
 report.json
-items/
-  source-1.json
-  source-2.json
 ```
 
 Obsidian mode produces:
@@ -264,20 +261,17 @@ Obsidian mode produces:
 ```text
 <Vault>/<Folder>/
   _index.md
-  _log.md
   YYYY-MM-DD/
     <timestamp_title>/
       Agent boundary control.md
       report.json
-      items/
-        01_title.json
 ```
 
 The default Obsidian note set includes:
 
 - one knowledge-card markdown note per source/link
 - YAML frontmatter for Dataview / filtering / tagging
-- `_index.md` and `_log.md` append-only navigation files at the vault-folder root
+- `_index.md` as the vault-folder root entry point
 - GitHub cards automatically link into `MOC/GitHub` and category pages such as `AI Agent`, `SaaS`, `FastAPI`, or `Automation`
 - high-confidence web / GitHub cards stay clean by default; folded raw evidence only appears for fallback / partial captures or transcript-style media
 - no `sources/` directory in the default knowledge-card layout
@@ -304,9 +298,7 @@ Typical CLI response:
   "report_title": "GitHub validation",
   "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证",
   "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/OpenAI Python SDK.md",
-  report.json
-  items/
-    01_title.json
+  "report_json": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证/report.json"
 ```
 
 ## Extraction Strategy

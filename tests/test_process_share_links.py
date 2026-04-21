@@ -892,6 +892,7 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn("## 学习提醒", content)
         self.assertIn("先看 README", content)
         self.assertIn("README.md", content)
+        self.assertNotIn("操作日志", content)
         self.assertNotIn("## 原始转录", content)
         self.assertNotIn("## 抓取证据", content)
 
@@ -1062,59 +1063,6 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn("## 2026-04-20", content)
         self.assertIn("## 2026-04-21", content)
         self.assertIn("NousResearch/hermes-agent", content)
-
-    def test_update_obsidian_knowledge_log_groups_entries_by_date_heading(self) -> None:
-        generated_at = MODULE.datetime(2026, 4, 21, 17, 23)
-        with tempfile.TemporaryDirectory() as tmp:
-            vault_root = Path(tmp) / "Vault"
-            obsidian_folder = "Inbox/内容摘要"
-            obsidian_root = vault_root / "Inbox" / "内容摘要"
-            obsidian_root.mkdir(parents=True, exist_ok=True)
-            log_path = obsidian_root / "_log.md"
-            log_path.write_text(
-                "\n".join([
-                    "---",
-                    "type: content-log",
-                    "created: 2026-04-20T13:46:25",
-                    "---",
-                    "",
-                    "# 操作日志",
-                    "",
-                    "记录 content-processor 每次入库或结构调整，便于回看导入时间、来源和状态。",
-                    "",
-                    "---",
-                    "",
-                    "## 2026-04-20",
-                    "",
-                    "- 19:22 · ingest · [[旧卡片]] · 抖音 · success",
-                    "",
-                ]),
-                encoding="utf-8",
-            )
-            note_path = obsidian_root / "2026-04-21" / "run" / "NousResearch_hermes-agent.md"
-            note_path.parent.mkdir(parents=True, exist_ok=True)
-            note_path.write_text("# hermes\n", encoding="utf-8")
-
-            MODULE.update_obsidian_knowledge_log(
-                vault_root,
-                obsidian_folder,
-                "NousResearch/hermes-agent",
-                [note_path],
-                [{
-                    "knowledge_card_title": "NousResearch/hermes-agent",
-                    "platform": "GitHub",
-                    "status": "success",
-                }],
-                generated_at,
-            )
-
-            content = log_path.read_text(encoding="utf-8")
-
-        self.assertIn("## 2026-04-20", content)
-        self.assertIn("## 2026-04-21", content)
-        self.assertIn("17:23 · ingest", content)
-        self.assertIn("NousResearch/hermes-agent", content)
-
 
 if __name__ == "__main__":
     unittest.main()

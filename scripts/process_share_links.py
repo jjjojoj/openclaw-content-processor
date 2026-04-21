@@ -3164,7 +3164,6 @@ def render_knowledge_card_note(
     warnings = [str(value).strip() for value in list(item.get("warnings") or []) if str(value).strip()]
     content = limit_analysis_text(str(item.get("content") or ""), max_chars=15000)
     index_link = build_obsidian_wikilink(obsidian_root / "_index.md", vault_root, "内容索引")
-    log_link = build_obsidian_wikilink(obsidian_root / "_log.md", vault_root, "操作日志")
     github_categories = [str(value) for value in list(item.get("github_categories") or []) if str(value).strip()]
     source_metadata = item.get("source_metadata")
     metadata = source_metadata if isinstance(source_metadata, dict) else {}
@@ -3214,7 +3213,7 @@ def render_knowledge_card_note(
         if github_branch_links:
             lines.append(f"- 知识分支：{' · '.join(github_branch_links)}")
     lines.extend([
-        f"- 索引：{index_link} · {log_link}",
+        f"- 索引：{index_link}",
         "",
     ])
 
@@ -3466,16 +3465,6 @@ def render_obsidian_source_note(
     lines.extend(["", "---", "", f"**←** [[{digest_note_path.stem}]]"])
 
     return "\n".join(lines).strip() + "\n"
-
-
-def write_item_files(items: list[dict[str, object]], item_dir: Path) -> None:
-    item_dir.mkdir(parents=True, exist_ok=True)
-    for index, item in enumerate(items, start=1):
-        filename = f"{index:02d}_{sanitize_filename(str(item.get('title') or item.get('platform') or 'item'))}.json"
-        (item_dir / filename).write_text(
-            json.dumps(item, ensure_ascii=False, indent=2),
-            encoding="utf-8",
-        )
 
 
 def write_obsidian_item_notes(
@@ -3882,83 +3871,6 @@ def update_obsidian_knowledge_index(
         index_path.write_text(header + "\n".join(entries).rstrip() + "\n", encoding="utf-8")
 
 
-def update_obsidian_log(
-    vault_root: Path,
-    obsidian_folder: str,
-    report_title: str,
-    items: list[dict[str, object]],
-    generated_at: datetime,
-) -> None:
-    """Append legacy digest-mode log lines grouped by date."""
-    log_path = vault_root.expanduser() / obsidian_folder / "_log.md"
-    entries: list[str] = []
-    for item in items:
-        title = shorten(str(item.get("title") or report_title or "未命名"), 72)
-        platform = str(item.get("platform") or item.get("platform_key") or "未知平台")
-        status = str(item.get("status") or "unknown")
-        entries.append(
-            f"- {generated_at.strftime('%H:%M')} · ingest · {title} · {platform} · {status}"
-        )
-    if not entries:
-        return
-
-    date_heading = f"## {generated_at.strftime('%Y-%m-%d')}"
-    if log_path.exists():
-        upsert_markdown_date_section_entries(log_path, date_heading, entries)
-    else:
-        header = (
-            "---\n"
-            "type: content-log\n"
-            f"created: {generated_at.isoformat(timespec='seconds')}\n"
-            "---\n\n"
-            "# 操作日志\n\n"
-            "记录 content-processor 每次入库或结构调整，便于回看导入时间、来源和状态。\n\n"
-            "---\n\n"
-            f"{date_heading}\n\n"
-        )
-        log_path.write_text(header + "\n".join(entries).rstrip() + "\n", encoding="utf-8")
-
-
-def update_obsidian_knowledge_log(
-    vault_root: Path,
-    obsidian_folder: str,
-    report_title: str,
-    note_paths: list[Path],
-    items: list[dict[str, object]],
-    generated_at: datetime,
-) -> None:
-    obsidian_root = build_obsidian_folder_root(vault_root, obsidian_folder)
-    log_path = obsidian_root / "_log.md"
-    entries: list[str] = []
-    for note_path, item in zip(note_paths, items):
-        title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
-        platform = str(item.get("platform") or item.get("platform_key") or "未知平台")
-        status = str(item.get("status") or "unknown")
-        entries.append(
-            f"- {generated_at.strftime('%H:%M')} · ingest · "
-            + f"{build_obsidian_wikilink(note_path, vault_root, title)}"
-            + f" · {platform} · {status}"
-        )
-    if not entries:
-        return
-
-    date_heading = f"## {generated_at.strftime('%Y-%m-%d')}"
-    if log_path.exists():
-        upsert_markdown_date_section_entries(log_path, date_heading, entries)
-    else:
-        header = (
-            "---\n"
-            "type: content-log\n"
-            f"created: {generated_at.isoformat(timespec='seconds')}\n"
-            "---\n\n"
-            "# 操作日志\n\n"
-            "记录 content-processor 每次入库或结构调整，便于回看导入时间、来源和状态。\n\n"
-            "---\n\n"
-            f"{date_heading}\n\n"
-        )
-        log_path.write_text(header + "\n".join(entries).rstrip() + "\n", encoding="utf-8")
-
-
 def derive_report_title(cli_title: str | None, items: list[dict[str, object]]) -> str:
     if cli_title:
         return cli_title
@@ -4171,9 +4083,7 @@ def main() -> int:
         desktop_run_dir = build_output_dir(output_options.output_root, report_title)
         desktop_report_md = desktop_run_dir / "report.md"
         desktop_report_json = desktop_run_dir / "report.json"
-        desktop_item_dir = desktop_run_dir / "items"
 
-        write_item_files(items, desktop_item_dir)
         desktop_report_md.write_text(
             render_report(report_title, items, desktop_run_dir, report_analysis, report_analysis_method),
             encoding="utf-8",
@@ -4183,7 +4093,6 @@ def main() -> int:
             "output_dir": str(desktop_run_dir),
             "report_md": str(desktop_report_md),
             "report_json": str(desktop_report_json),
-            "item_dir": str(desktop_item_dir),
         }
 
     if output_options.mode in {"obsidian", "both"}:
@@ -4194,8 +4103,6 @@ def main() -> int:
             output_options.obsidian_folder,
             report_title,
         )
-        obsidian_item_dir = obsidian_run_dir / "items"
-
         if output_options.obsidian_layout == "digest":
             obsidian_sources_dir = obsidian_run_dir / "sources"
             digest_note_path = obsidian_run_dir / f"{obsidian_run_dir.name}.md"
@@ -4220,7 +4127,6 @@ def main() -> int:
                 encoding="utf-8",
             )
             write_obsidian_item_notes(items, obsidian_sources_dir, digest_note_path, generated_at)
-            write_item_files(items, obsidian_item_dir)
 
             obsidian_output = {
                 "mode": "obsidian",
@@ -4230,7 +4136,6 @@ def main() -> int:
                 "output_dir": str(obsidian_run_dir),
                 "report_md": str(digest_note_path),
                 "report_json": str(obsidian_run_dir / "report.json"),
-                "item_dir": str(obsidian_item_dir),
                 "sources_dir": str(obsidian_sources_dir),
                 "source_notes": [str(path) for path in source_note_paths],
             }
@@ -4238,13 +4143,6 @@ def main() -> int:
                 obsidian_vault_root,
                 output_options.obsidian_folder,
                 digest_note_path,
-                items,
-                generated_at,
-            )
-            update_obsidian_log(
-                obsidian_vault_root,
-                output_options.obsidian_folder,
-                report_title,
                 items,
                 generated_at,
             )
@@ -4256,7 +4154,6 @@ def main() -> int:
                 obsidian_root,
                 generated_at,
             )
-            write_item_files(items, obsidian_item_dir)
 
             obsidian_output = {
                 "mode": "obsidian",
@@ -4266,21 +4163,12 @@ def main() -> int:
                 "output_dir": str(obsidian_run_dir),
                 "report_md": str(note_paths[0]) if note_paths else "",
                 "report_json": str(obsidian_run_dir / "report.json"),
-                "item_dir": str(obsidian_item_dir),
                 "sources_dir": "",
                 "source_notes": [str(path) for path in note_paths],
             }
             update_obsidian_knowledge_index(
                 obsidian_vault_root,
                 output_options.obsidian_folder,
-                note_paths,
-                items,
-                generated_at,
-            )
-            update_obsidian_knowledge_log(
-                obsidian_vault_root,
-                output_options.obsidian_folder,
-                report_title,
                 note_paths,
                 items,
                 generated_at,

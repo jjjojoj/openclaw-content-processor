@@ -133,25 +133,21 @@ bash "$SKILL_DIR/scripts/run.sh" \
 
 - `report.md` - 给人看的汇总报告
 - `report.json` - 结构化数据，包含 `schema_version`、整体状态、tool info 和逐项状态
-- `items/*.json` - 每个来源的单独抽取结果
 
 Obsidian 模式默认目录结构（knowledge-card）：
 
 ```text
 <Vault>/<Folder>/
   _index.md              ← 全局索引（每次处理自动追加，wikilink 指向 digest）
-  _log.md                ← 操作日志（可 grep：`## [日期] ingest | 标题`）
   YYYY-MM-DD/
     <timestamp_title>/
       知识卡片主题名.md        ← 单条来源的知识卡片（type: knowledge-card）
       report.json
-      items/*.json
 ```
 
 其中：
 
 - `_index.md` 是全局内容索引，每条记录用 `[[wikilink]]` 指向知识卡片，AI 可先扫这个定位
-- `_log.md` 是追加式操作日志，`grep "^## \[" _log.md | tail -10` 查最近10次处理
 - 默认一条来源对应一张知识卡片，一个 Obsidian 节点
 - 所有笔记都带 YAML frontmatter，适合 Obsidian / Dataview
 - 默认不再生成 `sources/` 目录；如需旧版 digest+source，可显式传 `--obsidian-layout digest`
@@ -298,11 +294,9 @@ CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
 ├── 00-从这里开始.md
 ├── Inbox/内容摘要/
 │   ├── _index.md            ← 全局索引（按日期，wikilink 指向知识卡片）
-│   ├── _log.md              ← 操作日志
 │   └── YYYY-MM-DD/
 │       └── 知识卡片主题名/     ← 一个知识点一个文件夹，一个节点
 │           ├── 知识卡片主题名.md  ← 主笔记（结构化知识卡片）
-│           ├── items/*.json      ← 原始抽取数据（备用）
 │           └── report.json
 ├── MOC/                      ← 主题总览页（积累 3+ 卡片后按需创建）
 │   ├── 识人技巧.md
@@ -380,7 +374,7 @@ tags:
 1. **抓取内容**：走 content-processor 正常链路（playwright/yt-dlp/whisper）
 2. **GLM 结构化提炼**：优先复用 OpenClaw 本地 `zai` provider，coding-plan 默认使用 `glm-4.7`
 3. **写入知识卡片**：按模板写入 Obsidian Vault
-4. **更新索引**：追加 `_index.md` 和 `_log.md`
+4. **更新索引**：追加 `_index.md`
 5. **汇报用户**：保存路径 + 核心结论
 
 ### LLM 提炼 Prompt 模板
