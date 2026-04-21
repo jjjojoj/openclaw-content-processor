@@ -2909,6 +2909,36 @@ def build_github_category_moc_path(obsidian_root: Path, category: str) -> Path:
     return obsidian_root / "MOC" / "GitHub" / f"{label}.md"
 
 
+def should_include_knowledge_card_evidence(item: dict[str, object]) -> bool:
+    content = normalize_space(str(item.get("content") or ""))
+    if not content:
+        return False
+
+    status = str(item.get("status") or "")
+    if status != "success":
+        return True
+
+    if bool(item.get("fallback_only")):
+        return True
+
+    warning_count = int(item.get("warning_count") or 0)
+    if warning_count > 0 or list(item.get("warnings") or []):
+        return True
+
+    extract_method = normalize_space(str(item.get("extract_method") or "")).lower()
+    if any(marker in extract_method for marker in ("whisper", "subtitle", "transcription")):
+        return True
+
+    return False
+
+
+def build_knowledge_card_evidence_label(item: dict[str, object], content: str) -> tuple[str, str]:
+    extract_method = normalize_space(str(item.get("extract_method") or "")).lower()
+    if any(marker in extract_method for marker in ("whisper", "subtitle", "transcription")):
+        return "原始转录", f"展开查看完整转录（{len(content)}字）"
+    return "抓取证据", f"展开查看抓取证据（{len(content)}字）"
+
+
 def render_knowledge_card_note(
     item: dict[str, object],
     note_title: str,
@@ -3033,14 +3063,15 @@ def render_knowledge_card_note(
     for concern in concern_entries[:4]:
         lines.append(f"- {concern}")
 
-    if content:
+    if should_include_knowledge_card_evidence(item) and content:
+        evidence_title, evidence_summary = build_knowledge_card_evidence_label(item, content)
         lines.extend(
             [
                 "",
-                "## 原始转录",
+                f"## {evidence_title}",
                 "",
                 "<details>",
-                f"<summary>展开查看完整转录（{len(content)}字）</summary>",
+                f"<summary>{evidence_summary}</summary>",
                 "",
                 content,
                 "",

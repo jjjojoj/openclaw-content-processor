@@ -866,6 +866,43 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn("GitHub 仓库", content)
         self.assertIn("AI Agent", content)
         self.assertIn("先看 README", content)
+        self.assertNotIn("## 原始转录", content)
+        self.assertNotIn("## 抓取证据", content)
+
+    def test_render_knowledge_card_note_shows_evidence_for_partial_web_capture(self) -> None:
+        generated_at = MODULE.datetime(2026, 4, 21, 13, 0)
+        item = {
+            "title": "网页文章",
+            "platform": "网页",
+            "platform_key": "web",
+            "status": "partial",
+            "source": "https://example.com/post",
+            "author": "作者A",
+            "extract_method": "html fallback",
+            "warning_count": 1,
+            "warnings": ["正文结构不稳定，已回退到 html fallback。"],
+            "summary": "这是网页摘要。",
+            "analysis": "核心价值：有参考价值。\n适用场景：快速浏览。\n关注点：建议核对原始内容。",
+            "analysis_method": "local heuristic",
+            "highlights": ["先看核心观点。"],
+            "content": "这是抓取到的原始网页内容。" * 20,
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+            note_path = obsidian_root / "2026-04-21" / "run" / "web.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            content = MODULE.render_knowledge_card_note(
+                item,
+                "网页文章",
+                generated_at,
+                vault_root,
+                obsidian_root,
+                note_path,
+            )
+
+        self.assertIn("## 抓取证据", content)
+        self.assertIn("展开查看抓取证据", content)
 
     def test_update_obsidian_github_mocs_creates_root_and_category_notes(self) -> None:
         generated_at = MODULE.datetime(2026, 4, 21, 12, 12)

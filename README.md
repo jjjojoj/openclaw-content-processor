@@ -279,6 +279,7 @@ The default Obsidian note set includes:
 - YAML frontmatter for Dataview / filtering / tagging
 - `_index.md` and `_log.md` append-only navigation files at the vault-folder root
 - GitHub cards automatically link into `MOC/GitHub` and category pages such as `AI Agent`, `SaaS`, `FastAPI`, or `Automation`
+- high-confidence web / GitHub cards stay clean by default; folded raw evidence only appears for fallback / partial captures or transcript-style media
 - no `sources/` directory in the default knowledge-card layout
 
 If you still need the older batch digest + per-source layout, run:

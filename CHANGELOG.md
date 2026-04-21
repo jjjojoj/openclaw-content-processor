@@ -25,6 +25,7 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - Coding-plan analysis now defaults to `glm-4.7`, instead of probing `glm-5` first
 - BigModel / z.ai `chat/completions` summary requests now disable `thinking` by default so `glm-4.7` returns final answer text instead of reasoning-only payloads
 - GitHub cards now use repository-specific summaries, method checkpoints, branch tags, and category links instead of generic web-page sentence ranking
+- Knowledge-card notes no longer dump full raw content for high-confidence web / GitHub captures; folded evidence is only shown for lower-confidence fallback cases or transcript-style media
 
 ## [2.4.0] - 2026-04-19
 

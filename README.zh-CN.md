@@ -279,6 +279,7 @@ Obsidian 模式会生成：
 - 适合 Dataview / 过滤 / 标签的 YAML frontmatter
 - 位于 Vault 根目录下的 `_index.md` 和 `_log.md`
 - GitHub 卡片会自动接入 `MOC/GitHub` 以及 `AI Agent`、`SaaS`、`FastAPI`、`Automation` 等分类页
+- 高置信网页 / GitHub 卡片默认不再塞整段原始内容；只有 fallback / 部分成功 / 转写型媒体时才显示折叠证据
 - 默认不再生成 `sources/` 目录
 
 如果你仍然需要旧的 batch digest + per-source 布局，可以显式运行：
