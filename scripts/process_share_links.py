@@ -216,6 +216,33 @@ PLATFORM_LABELS = {
     "file": "本地文件",
 }
 
+GITHUB_CATEGORY_RULES = (
+    ("ai-agent", ("ai-agent", "ai-agents", "agent", "agents", "openclaw", "hermes-agent", "claude-code", "codex")),
+    ("saas", ("saas", "multi-tenant", "subscription", "billing", "workspace", "crm", "b2b")),
+    ("fastapi", ("fastapi",)),
+    ("automation", ("automation", "workflow", "scheduler", "cron", "task-runner")),
+    ("developer-tool", ("developer-tools", "tooling", "cli", "sdk", "terminal", "devtool")),
+    ("llm-app", ("llm", "openai", "anthropic", "rag", "chatgpt", "claude")),
+)
+GITHUB_CATEGORY_LABELS = {
+    "ai-agent": "AI Agent",
+    "saas": "SaaS",
+    "fastapi": "FastAPI",
+    "automation": "Automation",
+    "developer-tool": "Developer Tool",
+    "llm-app": "LLM App",
+    "uncategorized": "待分类",
+}
+GITHUB_CATEGORY_SCENES = {
+    "ai-agent": "个人助手、自动化代理、云端常驻 Agent",
+    "saas": "SaaS 产品原型、B2B 平台、订阅制服务",
+    "fastapi": "Python API 服务、后端接口、AI 服务封装",
+    "automation": "定时任务、工作流编排、消息自动化",
+    "developer-tool": "开发者效率工具、命令行工作流、工程脚手架",
+    "llm-app": "LLM 应用、模型接入、中间层服务",
+    "uncategorized": "通用开源项目筛选、资料归档、灵感收集",
+}
+
 STOP_WORDS = {
     "the", "and", "for", "that", "with", "this", "from", "have", "your",
     "will", "into", "about", "http", "https", "www", "com", "you", "they",
@@ -685,28 +712,60 @@ def build_obsidian_wikilink(path: Path, vault_root: Path, label: str | None = No
     return f"[[{target}]]"
 
 
+def split_structured_list(text: str) -> list[str]:
+    candidate = normalize_space(str(text or ""))
+    if not candidate:
+        return []
+
+    numbered = re.sub(r"\s*(\d+)[\.\)、)]\s*", "\n", candidate)
+    pieces = re.split(r"(?:\n+|\s*[;；|｜]\s*|\s*•\s*|\s*●\s*)", numbered)
+    values: list[str] = []
+    seen: set[str] = set()
+    for piece in pieces:
+        cleaned = re.sub(r"^[>\-*\s,，、]+", "", piece).strip()
+        cleaned = cleaned.rstrip("。；;，,")
+        if not cleaned:
+            continue
+        if cleaned not in seen:
+            values.append(cleaned)
+            seen.add(cleaned)
+    return values
+
+
 def parse_analysis_sections(text: str) -> dict[str, str]:
     sections = {
+        "card_title": "",
         "core_value": "",
         "scenarios": "",
+        "methods": "",
+        "categories": "",
         "concerns": "",
     }
     for line in str(text or "").splitlines():
         cleaned = line.strip()
         if not cleaned:
             continue
-        if cleaned.startswith("核心价值："):
+        if cleaned.startswith("卡片标题："):
+            sections["card_title"] = normalize_space(cleaned.split("：", 1)[1])
+        elif cleaned.startswith("核心价值："):
             sections["core_value"] = normalize_space(cleaned.split("：", 1)[1])
         elif cleaned.startswith("适用场景："):
             sections["scenarios"] = normalize_space(cleaned.split("：", 1)[1])
+        elif cleaned.startswith("方法要点："):
+            sections["methods"] = normalize_space(cleaned.split("：", 1)[1])
+        elif cleaned.startswith("分类："):
+            sections["categories"] = normalize_space(cleaned.split("：", 1)[1])
         elif cleaned.startswith("关注点："):
             sections["concerns"] = normalize_space(cleaned.split("：", 1)[1])
     return sections
 
 
 def derive_knowledge_card_title(item: dict[str, object]) -> str:
+    if str(item.get("platform_key") or "") == "github":
+        return suggest_github_card_title(item)
     sections = parse_analysis_sections(str(item.get("analysis") or ""))
     candidates = [
+        sections["card_title"],
         sections["core_value"],
         *(str(value).strip() for value in list(item.get("highlights") or [])[:2]),
         str(item.get("summary") or "").strip(),
@@ -1738,6 +1797,198 @@ def should_prefer_context_title(current_title: str, platform_key: str) -> bool:
     return any(marker in normalized for marker in markers)
 
 
+def collect_github_signal_text(item: dict[str, object]) -> str:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    parts: list[str] = []
+    for value in metadata.get("topics") or []:
+        text = normalize_space(str(value))
+        if text:
+            parts.append(text)
+    for key in ["description", "language", "full_name"]:
+        text = normalize_space(str(metadata.get(key) or ""))
+        if text:
+            parts.append(text)
+    content = str(item.get("content") or "")
+    if content:
+        parts.append(limit_analysis_text(content, max_chars=5000))
+    return " ".join(parts).lower()
+
+
+def derive_github_categories(item: dict[str, object]) -> list[str]:
+    text = collect_github_signal_text(item)
+    categories: list[str] = []
+    for category, signals in GITHUB_CATEGORY_RULES:
+        if any(signal in text for signal in signals):
+            categories.append(category)
+    if not categories and "api" in text and "python" in text:
+        categories.append("fastapi")
+    if not categories:
+        categories.append("uncategorized")
+    return categories[:3]
+
+
+def format_github_category_label(category: str) -> str:
+    return GITHUB_CATEGORY_LABELS.get(category, category.replace("-", " ").title())
+
+
+def github_repo_name(item: dict[str, object]) -> str:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    return normalize_space(str(metadata.get("full_name") or item.get("title") or "GitHub 仓库"))
+
+
+def extract_github_topics(item: dict[str, object]) -> list[str]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    topics: list[str] = []
+    seen: set[str] = set()
+    for value in metadata.get("topics") or []:
+        topic = normalize_space(str(value))
+        if not topic:
+            continue
+        key = topic.lower()
+        if key in seen:
+            continue
+        seen.add(key)
+        topics.append(topic)
+    return topics[:8]
+
+
+def derive_github_capabilities(item: dict[str, object]) -> list[str]:
+    text = collect_github_signal_text(item)
+    capabilities: list[str] = []
+    rules = [
+        ("自改进学习循环与技能演化", ("self-improving", "learning loop", "creates skills", "improves them")),
+        ("多平台消息与 CLI 统一入口", ("telegram", "discord", "slack", "whatsapp", "signal", "cli")),
+        ("多模型接入与切换", ("openai", "anthropic", "openrouter", "minimax", "moonshot", "z.ai", "glm")),
+        ("定时任务与自动化调度", ("cron", "scheduler", "scheduled automations", "daily reports", "weekly audits")),
+        ("多运行环境部署", ("docker", "ssh", "daytona", "modal", "serverless", "gpu cluster", "vps")),
+    ]
+    for label, signals in rules:
+        if any(signal in text for signal in signals):
+            capabilities.append(label)
+    if not capabilities:
+        description = normalize_space(str((item.get("source_metadata") or {}).get("description") if isinstance(item.get("source_metadata"), dict) else ""))
+        if description:
+            capabilities.append(shorten(description, 48))
+    return capabilities[:3]
+
+
+def build_github_summary(item: dict[str, object]) -> str:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    repo_name = github_repo_name(item)
+    description = normalize_space(str(metadata.get("description") or ""))
+    categories = [format_github_category_label(value) for value in derive_github_categories(item)]
+    capabilities = derive_github_capabilities(item)
+    stars = int(metadata.get("stargazers_count") or 0)
+
+    parts: list[str] = []
+    if categories:
+        parts.append(f"{repo_name} 是一个 {', '.join(categories)} 项目")
+    else:
+        parts.append(f"{repo_name} 是一个值得关注的 GitHub 项目")
+    if description:
+        parts.append(description.rstrip("。"))
+    if capabilities:
+        parts.append("重点在于 " + "、".join(capabilities))
+    if stars:
+        parts.append(f"当前约 {stars} stars")
+    return shorten("，".join(parts) + "。", 220)
+
+
+def suggest_github_card_title(item: dict[str, object]) -> str:
+    sections = parse_analysis_sections(str(item.get("analysis") or ""))
+    repo_name = github_repo_name(item)
+    explicit_title = normalize_space(sections["card_title"])
+    core_value = normalize_space(sections["core_value"])
+    description = normalize_space(str(((item.get("source_metadata") or {}) if isinstance(item.get("source_metadata"), dict) else {}).get("description") or ""))
+    categories = [format_github_category_label(value) for value in derive_github_categories(item)]
+    capabilities = derive_github_capabilities(item)
+    repo_short = repo_name.split("/")[-1].strip().lower().replace("-", "").replace("_", "")
+    explicit_compact = explicit_title.lower().replace("-", "").replace("_", "").replace(" ", "")
+    explicit_is_generic = (
+        bool(explicit_title)
+        and not re.search(r"[\u4e00-\u9fff]", explicit_title)
+        and (explicit_compact == repo_short or len(explicit_title) <= 24)
+    )
+    if explicit_title and not explicit_is_generic:
+        if repo_name and repo_name.lower() not in explicit_title.lower():
+            return shorten(f"{repo_name} | {explicit_title}", 48)
+        return shorten(explicit_title, 48)
+
+    fragments = [
+        core_value,
+        description,
+        capabilities[0] if capabilities else "",
+        categories[0] if categories else "",
+    ]
+    detail = ""
+    for fragment in fragments:
+        cleaned = normalize_space(fragment)
+        if not cleaned:
+            continue
+        cleaned = cleaned.replace(repo_name, "").strip("，,。；;：:|- ")
+        if cleaned:
+            detail = cleaned
+            break
+    if explicit_title and explicit_is_generic and detail:
+        return shorten(f"{repo_name} | {detail}", 48)
+    if detail:
+        return shorten(f"{repo_name} | {detail}", 48)
+    return shorten(repo_name or "GitHub 仓库", 48)
+
+
+def build_github_highlights(item: dict[str, object]) -> list[str]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    description = normalize_space(str(metadata.get("description") or ""))
+    capabilities = derive_github_capabilities(item)
+    categories = [format_github_category_label(value) for value in derive_github_categories(item)]
+    stars = int(metadata.get("stargazers_count") or 0)
+    language = normalize_space(str(metadata.get("language") or ""))
+
+    highlights: list[str] = []
+    if description:
+        highlights.append(f"定位：{description}")
+    if capabilities:
+        highlights.append("能力：{}".format("、".join(capabilities)))
+    scene_parts: list[str] = []
+    if categories:
+        scene_parts.extend(
+            GITHUB_CATEGORY_SCENES.get(category, format_github_category_label(category))
+            for category in derive_github_categories(item)
+        )
+    if not scene_parts:
+        if language:
+            scene_parts.append(f"{language} 工程方案评估")
+        scene_parts.append("开源项目筛选")
+    highlights.append("适合：{}".format("、".join(dict.fromkeys(scene_parts))))
+    if stars:
+        highlights.append(f"热度：约 {stars} stars")
+    return [shorten(value, 180) for value in highlights[:4]]
+
+
+def build_github_method_points(item: dict[str, object]) -> list[str]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    capabilities = derive_github_capabilities(item)
+    methods: list[str] = []
+    if capabilities:
+        methods.append("先看 README 和定位描述，确认它解决的核心问题是不是你当前正在碰到的。")
+        methods.append("重点核对 " + "、".join(capabilities[:2]) + " 是否真的是项目的主能力，而不是宣传语。")
+        methods.append("再看 stars、语言栈、默认分支和最近更新时间，判断它是不是值得继续深挖。")
+    else:
+        repo_name = str(metadata.get("full_name") or item.get("title") or "该仓库")
+        methods.extend([
+            f"先确认 {repo_name} 的定位和 README 是否清楚说明了核心用途。",
+            "再看语言栈、stars 和最近更新时间，判断成熟度和维护状态。",
+            "最后决定是继续装起来试，还是只做资料归档。",
+        ])
+    return [shorten(value, 180) for value in methods[:3]]
+
+
 def build_local_item_analysis(item: dict[str, object]) -> str:
     platform = str(item.get("platform") or "内容")
     summary = str(item.get("summary") or "").strip()
@@ -1747,17 +1998,18 @@ def build_local_item_analysis(item: dict[str, object]) -> str:
     metadata = source_metadata if isinstance(source_metadata, dict) else {}
 
     if str(item.get("platform_key") or "") == "github":
-        topics = ", ".join(str(value) for value in list(metadata.get("topics") or [])[:4])
         stars = metadata.get("stargazers_count") or 0
         language = str(metadata.get("language") or "未识别")
-        description = str(metadata.get("description") or summary or "仓库 README 已提取，可继续分析安装方式与核心模块。")
-        focus = "建议优先看 README 的安装步骤、目录结构和最近更新点。"
-        if topics:
-            focus = f"建议优先看 {topics} 相关模块，以及 README 的安装步骤和示例。"
+        description = build_github_summary(item)
+        focus = "；".join(build_github_method_points(item))
+        categories = ", ".join(format_github_category_label(value) for value in derive_github_categories(item))
         return "\n".join([
+            f"卡片标题：{suggest_github_card_title(item)}",
             f"核心价值：{shorten(description, 120)}",
             f"适用场景：这是一个 {language} 项目，当前约 {stars} stars，适合做仓库筛选、README 解读和方案评估。",
-            f"关注点：{focus}",
+            f"方法要点：{focus}",
+            f"分类：{categories or 'GitHub 项目'}",
+            "关注点：不要把安装命令、徽章和导航区当成项目核心能力，优先看 README 对价值、边界和使用方式的描述。",
         ])
 
     lead = highlights[0] if highlights else summary or f"{platform} 内容已完成抽取。"
@@ -1770,6 +2022,22 @@ def build_local_item_analysis(item: dict[str, object]) -> str:
         scene,
         concern,
     ])
+
+
+def finalize_github_item(item: dict[str, object]) -> dict[str, object]:
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    keywords = extract_github_topics(item)
+    category_tokens = derive_github_categories(item)
+    for category in category_tokens:
+        token = sanitize_obsidian_tag(category, "github")
+        if token and token not in keywords:
+            keywords.append(token)
+    item["summary"] = build_github_summary(item)
+    item["highlights"] = build_github_highlights(item)
+    item["keywords"] = keywords[:8] or extract_keywords(str(item.get("content") or ""), limit=6)
+    item["github_categories"] = category_tokens
+    return item
 
 
 def extract_response_text(payload: object) -> str:
@@ -2002,6 +2270,29 @@ def build_item_analysis_prompt(item: dict[str, object]) -> str:
     metadata_block = json.dumps(metadata, ensure_ascii=False, indent=2) if isinstance(metadata, dict) and metadata else "{}"
     content = shorten(str(item.get("content") or ""), 5000)
     highlights = "\n".join(f"- {value}" for value in list(item.get("highlights") or [])[:3])
+    if str(item.get("platform_key") or "") == "github":
+        return "\n".join([
+            "你是一个 GitHub 项目研究助手。请用中文输出固定标签的短卡片，每行一个标签：",
+            "卡片标题：...",
+            "核心价值：...",
+            "适用场景：...",
+            "方法要点：1) ...；2) ...；3) ...",
+            "分类：AI Agent, SaaS, FastAPI 这类短标签，最多 3 个",
+            "关注点：...",
+            "",
+            "要求：",
+            "1. 不要把 Repository、Homepage、安装命令、徽章导航当成项目核心价值。",
+            "2. 核心价值要回答“这个项目到底是干什么的，为什么值得看”。",
+            "3. 方法要点要写成“判断这个项目值不值得继续研究的 3 个观察点”，不是抄 README 原句。",
+            "4. 分类要尽量产品化、技术方向化，比如 AI Agent / SaaS / FastAPI / Automation。",
+            "",
+            f"标题：{item.get('title') or ''}",
+            f"作者/组织：{item.get('author') or ''}",
+            f"摘要：{item.get('summary') or ''}",
+            f"核心信息：\n{highlights}",
+            f"来源元数据：\n{metadata_block}",
+            f"正文片段：\n{content}",
+        ])
     return "\n".join([
         "你是一个内容分析助手。请用中文输出三行，每行都以固定标签开头：",
         "核心价值：...",
@@ -2349,11 +2640,14 @@ def finalize_item(item: dict[str, object]) -> dict[str, object]:
     warnings = list(item.get("warnings") or [])
     fallback_only = bool(item.get("fallback_only"))
     if content:
-        highlights = rank_sentences(content, max_sentences=3)
-        summary = " ".join(highlights) or shorten(content, 220)
-        item["summary"] = shorten(summary, 420)
-        item["highlights"] = [shorten(line, 180) for line in highlights[:3]]
-        item["keywords"] = extract_keywords(content, limit=6)
+        if str(item.get("platform_key") or "") == "github":
+            item = finalize_github_item(item)
+        else:
+            highlights = rank_sentences(content, max_sentences=3)
+            summary = " ".join(highlights) or shorten(content, 220)
+            item["summary"] = shorten(summary, 420)
+            item["highlights"] = [shorten(line, 180) for line in highlights[:3]]
+            item["keywords"] = extract_keywords(content, limit=6)
     else:
         item["summary"] = "未能提取到足够正文，只保留了来源元数据。"
         item["highlights"] = []
@@ -2570,26 +2864,49 @@ def build_knowledge_card_frontmatter(
         f"status/{sanitize_obsidian_tag(str(item.get('status') or 'unknown'))}",
     ]
     tags.extend(sanitize_obsidian_tag(str(value), "content") for value in list(item.get("keywords") or [])[:6])
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
     source = str(item.get("platform") or "内容")
     author = str(item.get("author") or "").strip()
     if author and author != source:
         source = f"{source} @{author}"
-    return render_yaml_frontmatter(
-        {
-            "title": note_title,
-            "type": "knowledge-card",
-            "created": generated_at.isoformat(timespec="seconds"),
-            "digest_date": generated_at.strftime("%Y-%m-%d"),
-            "source": source,
-            "source_url": str(item.get("source") or ""),
-            "platform": str(item.get("platform") or ""),
-            "platform_key": str(item.get("platform_key") or ""),
-            "status": str(item.get("status") or ""),
-            "author": author,
-            "keywords": [str(value) for value in list(item.get("keywords") or [])[:8]],
-            "tags": tags,
-        }
-    )
+    fields: dict[str, object] = {
+        "title": note_title,
+        "type": "knowledge-card",
+        "created": generated_at.isoformat(timespec="seconds"),
+        "digest_date": generated_at.strftime("%Y-%m-%d"),
+        "source": source,
+        "source_url": str(item.get("source") or ""),
+        "platform": str(item.get("platform") or ""),
+        "platform_key": str(item.get("platform_key") or ""),
+        "status": str(item.get("status") or ""),
+        "author": author,
+        "keywords": [str(value) for value in list(item.get("keywords") or [])[:8]],
+        "tags": tags,
+    }
+    if platform_key == "github":
+        github_categories = [str(value) for value in list(item.get("github_categories") or []) if str(value).strip()]
+        github_topics = extract_github_topics(item)
+        tags.append("source/github")
+        tags.extend(f"github/category/{sanitize_obsidian_tag(value, 'uncategorized')}" for value in github_categories[:4])
+        tags.extend(f"github/topic/{sanitize_obsidian_tag(value, 'topic')}" for value in github_topics[:6])
+        fields["knowledge_branch"] = "GitHub"
+        fields["github_repo"] = github_repo_name(item)
+        fields["github_categories"] = [format_github_category_label(value) for value in github_categories]
+        fields["github_topics"] = github_topics
+        fields["github_language"] = str(metadata.get("language") or "")
+        fields["github_stars"] = int(metadata.get("stargazers_count") or 0)
+        fields["github_updated_at"] = str(metadata.get("updated_at") or "")
+    return render_yaml_frontmatter(fields)
+
+
+def build_github_moc_root_path(obsidian_root: Path) -> Path:
+    return obsidian_root / "MOC" / "GitHub" / "GitHub 仓库.md"
+
+
+def build_github_category_moc_path(obsidian_root: Path, category: str) -> Path:
+    label = format_github_category_label(category)
+    return obsidian_root / "MOC" / "GitHub" / f"{label}.md"
 
 
 def render_knowledge_card_note(
@@ -2601,18 +2918,58 @@ def render_knowledge_card_note(
     note_path: Path,
 ) -> str:
     sections = parse_analysis_sections(str(item.get("analysis") or ""))
+    is_github = str(item.get("platform_key") or "") == "github"
     lead = sections["core_value"] or str(item.get("summary") or "").strip() or str(item.get("title") or "这条内容值得继续关注。")
-    scenario_text = sections["scenarios"] or "适合先快速消化这条内容的核心观点，再决定是否继续深挖原始链接。"
-    concern_text = sections["concerns"] or "建议结合原始链接和转录内容，核对细节后再作为行动依据。"
+    scenario_entries = split_structured_list(sections["scenarios"])
+    if not scenario_entries:
+        scenario_text = sections["scenarios"] or "适合先快速消化这条内容的核心观点，再决定是否继续深挖原始链接。"
+        scenario_entries = [scenario_text]
+    concern_entries = split_structured_list(sections["concerns"])
+    if not concern_entries:
+        concern_text = sections["concerns"] or "建议结合原始链接和转录内容，核对细节后再作为行动依据。"
+        concern_entries = [concern_text]
+    if is_github and not any(
+        re.search(r"(注意|确认|避免|不要|建议|留意|核对|成本|权限|风险|维护)", entry)
+        for entry in concern_entries
+    ):
+        concern_entries.append("建议优先核对权限边界、部署成本和最近维护活跃度，再决定是否投入时间装起来试。")
     highlights = [str(value).strip() for value in list(item.get("highlights") or []) if str(value).strip()]
     if not highlights:
         summary = str(item.get("summary") or "").strip()
         if summary:
             highlights = split_sentences(summary)[:3] or [summary]
+    method_points = split_structured_list(sections["methods"])
+    if not method_points and is_github:
+        method_points = build_github_method_points(item)
+    if not method_points:
+        method_points = highlights[:4]
     warnings = [str(value).strip() for value in list(item.get("warnings") or []) if str(value).strip()]
     content = limit_analysis_text(str(item.get("content") or ""), max_chars=15000)
     index_link = build_obsidian_wikilink(obsidian_root / "_index.md", vault_root, "内容索引")
     log_link = build_obsidian_wikilink(obsidian_root / "_log.md", vault_root, "操作日志")
+    github_categories = [str(value) for value in list(item.get("github_categories") or []) if str(value).strip()]
+    source_metadata = item.get("source_metadata")
+    metadata = source_metadata if isinstance(source_metadata, dict) else {}
+    github_topics = extract_github_topics(item)
+    repo_name = github_repo_name(item)
+    category_links = [
+        build_obsidian_wikilink(
+            build_github_category_moc_path(obsidian_root, category),
+            vault_root,
+            format_github_category_label(category),
+        )
+        for category in github_categories
+    ]
+    github_branch_links: list[str] = []
+    if is_github:
+        github_branch_links.append(
+            build_obsidian_wikilink(
+                build_github_moc_root_path(obsidian_root),
+                vault_root,
+                "GitHub 仓库",
+            )
+        )
+        github_branch_links.extend(category_links)
 
     lines = [
         build_knowledge_card_frontmatter(item, generated_at, note_title),
@@ -2622,37 +2979,59 @@ def render_knowledge_card_note(
         f"> {shorten(lead, 180)}",
         "",
         f"- 来源：{item.get('platform') or '未知平台'}",
+        f"- 仓库/标题：{repo_name if is_github else (item.get('title') or '-')}",
         f"- 原始链接：{item.get('source') or '-'}",
         f"- 状态：{item.get('status') or 'unknown'}",
         f"- 分析方式：{item.get('analysis_method') or '-'}",
+    ]
+    if is_github:
+        if metadata.get("language"):
+            lines.append(f"- 语言栈：{metadata.get('language')}")
+        if metadata.get("stargazers_count"):
+            lines.append(f"- 热度：约 {metadata.get('stargazers_count')} stars")
+        if github_categories:
+            lines.append(f"- 分类：{', '.join(format_github_category_label(value) for value in github_categories)}")
+        if github_topics:
+            lines.append(f"- Topics：{', '.join(github_topics[:8])}")
+        if github_branch_links:
+            lines.append(f"- 知识分支：{' · '.join(github_branch_links)}")
+    lines.extend([
         f"- 索引：{index_link} · {log_link}",
         "",
+    ])
+
+    if highlights and is_github:
+        lines.extend([
+            "## 仓库亮点",
+            "",
+        ])
+        for highlight in highlights[:4]:
+            lines.append(f"- {highlight}")
+        lines.append("")
+
+    lines.extend([
         "## 适用场景",
         "",
-        f"- {scenario_text}",
+    ])
+    for scenario in scenario_entries[:4]:
+        lines.append(f"- {scenario}")
+    lines.extend([
         "",
         "## 方法 / 判断要点",
         "",
-    ]
+    ])
+    for point in method_points[:4]:
+        lines.append(f"- {point}")
 
-    for index, highlight in enumerate(highlights[:4], start=1):
-        lines.extend(
-            [
-                f"### 要点 {index}",
-                "",
-                f"- {highlight}",
-                "",
-            ]
-        )
-
-    if not highlights:
+    if not method_points:
         lines.extend(["- 建议先阅读原始链接，再决定是否沉淀为长期知识。", ""])
 
-    lines.extend(["## 注意事项", ""])
+    lines.extend(["", "## 注意事项", ""])
     if warnings:
         for warning in warnings:
             lines.append(f"- {warning}")
-    lines.append(f"- {concern_text}")
+    for concern in concern_entries[:4]:
+        lines.append(f"- {concern}")
 
     if content:
         lines.extend(
@@ -2896,6 +3275,242 @@ def write_knowledge_card_notes(
         item["knowledge_card_note"] = str(note_path)
         paths.append(note_path)
     return paths
+
+
+def render_github_root_moc_note(
+    entries: list[tuple[Path, dict[str, object]]],
+    vault_root: Path,
+    obsidian_root: Path,
+    generated_at: datetime,
+) -> str:
+    categories = sorted({
+        str(category)
+        for _, item in entries
+        for category in list(item.get("github_categories") or [])
+        if str(category).strip()
+    })
+    lines = [
+        render_yaml_frontmatter(
+            {
+                "title": "GitHub 仓库",
+                "type": "moc",
+                "branch": "github",
+                "created": generated_at.isoformat(timespec="seconds"),
+                "tags": ["content-processor", "moc", "github"],
+            }
+        ),
+        "",
+        "# GitHub 仓库",
+        "",
+        "所有通过 content-processor 抓取并沉淀的 GitHub 仓库，会从这里继续分到更细的主题分支。",
+        "",
+        "## 分类",
+        "",
+    ]
+    if categories:
+        for category in categories:
+            lines.append(
+                "- "
+                + build_obsidian_wikilink(
+                    build_github_category_moc_path(obsidian_root, category),
+                    vault_root,
+                    format_github_category_label(category),
+                )
+            )
+    else:
+        lines.append("- 目前还没有 GitHub 分类。")
+
+    lines.extend(["", "## 最近入库", ""])
+    for note_path, item in entries:
+        title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
+        labels = [format_github_category_label(value) for value in list(item.get("github_categories") or [])[:3]]
+        suffix = f" · {' / '.join(labels)}" if labels else ""
+        lines.append(
+            "- "
+            + build_obsidian_wikilink(note_path, vault_root, title)
+            + f" · {github_repo_name(item)}{suffix}"
+        )
+    return "\n".join(lines).strip() + "\n"
+
+
+def render_github_category_moc_note(
+    category: str,
+    entries: list[tuple[Path, dict[str, object]]],
+    vault_root: Path,
+    obsidian_root: Path,
+    generated_at: datetime,
+) -> str:
+    label = format_github_category_label(category)
+    root_link = build_obsidian_wikilink(build_github_moc_root_path(obsidian_root), vault_root, "GitHub 仓库")
+    lines = [
+        render_yaml_frontmatter(
+            {
+                "title": label,
+                "type": "moc",
+                "branch": "github-category",
+                "category": label,
+                "created": generated_at.isoformat(timespec="seconds"),
+                "tags": ["content-processor", "moc", "github", f"github/category/{sanitize_obsidian_tag(category, 'uncategorized')}"],
+            }
+        ),
+        "",
+        f"# GitHub / {label}",
+        "",
+        f"- 上级分支：{root_link}",
+        "",
+        "## 仓库清单",
+        "",
+    ]
+    for note_path, item in entries:
+        title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
+        details: list[str] = [github_repo_name(item)]
+        source_metadata = item.get("source_metadata")
+        metadata = source_metadata if isinstance(source_metadata, dict) else {}
+        language = normalize_space(str(metadata.get("language") or ""))
+        if language:
+            details.append(language)
+        if metadata.get("stargazers_count"):
+            details.append(f"{metadata.get('stargazers_count')} stars")
+        lines.append(
+            "- "
+            + build_obsidian_wikilink(note_path, vault_root, title)
+            + " · "
+            + " · ".join(details)
+        )
+    return "\n".join(lines).strip() + "\n"
+
+
+def upsert_markdown_section_bullets(
+    note_path: Path,
+    section_title: str,
+    bullet_lines: list[str],
+) -> None:
+    if not note_path.exists() or not bullet_lines:
+        return
+
+    content = note_path.read_text(encoding="utf-8")
+    lines = content.splitlines()
+    try:
+        heading_index = next(index for index, line in enumerate(lines) if line.strip() == section_title)
+    except StopIteration:
+        lines.extend(["", section_title, ""])
+        lines.extend(bullet_lines)
+        note_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+        return
+
+    next_heading = len(lines)
+    for index in range(heading_index + 1, len(lines)):
+        if lines[index].startswith("## "):
+            next_heading = index
+            break
+
+    existing = {
+        line.strip()
+        for line in lines[heading_index + 1:next_heading]
+        if line.strip().startswith("- ")
+    }
+    additions = [line for line in bullet_lines if line.strip() and line.strip() not in existing]
+    if not additions:
+        return
+
+    insert_block: list[str] = []
+    if next_heading > 0 and lines[next_heading - 1].strip():
+        insert_block.append("")
+    insert_block.extend(additions)
+    if next_heading < len(lines) and lines[next_heading].strip():
+        insert_block.append("")
+    lines[next_heading:next_heading] = insert_block
+    note_path.write_text("\n".join(lines).rstrip() + "\n", encoding="utf-8")
+
+
+def update_obsidian_github_mocs(
+    vault_root: Path,
+    obsidian_folder: str,
+    note_paths: list[Path],
+    items: list[dict[str, object]],
+    generated_at: datetime,
+) -> None:
+    entries = [
+        (note_path, item)
+        for note_path, item in zip(note_paths, items)
+        if str(item.get("platform_key") or "") == "github"
+    ]
+    if not entries:
+        return
+
+    obsidian_root = build_obsidian_folder_root(vault_root, obsidian_folder)
+    moc_root = build_github_moc_root_path(obsidian_root)
+    moc_root.parent.mkdir(parents=True, exist_ok=True)
+    root_category_lines = [
+        "- "
+        + build_obsidian_wikilink(
+            build_github_category_moc_path(obsidian_root, category),
+            vault_root,
+            format_github_category_label(category),
+        )
+        for category in sorted({
+            str(category)
+            for _, item in entries
+            for category in list(item.get("github_categories") or [])
+            if str(category).strip()
+        })
+    ]
+    root_entry_lines = []
+    for note_path, item in entries:
+        title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
+        labels = [format_github_category_label(value) for value in list(item.get("github_categories") or [])[:3]]
+        suffix = f" · {' / '.join(labels)}" if labels else ""
+        root_entry_lines.append(
+            "- "
+            + build_obsidian_wikilink(note_path, vault_root, title)
+            + f" · {github_repo_name(item)}{suffix}"
+        )
+    if not moc_root.exists():
+        moc_root.write_text(
+            render_github_root_moc_note(entries, vault_root, obsidian_root, generated_at),
+            encoding="utf-8",
+        )
+    else:
+        upsert_markdown_section_bullets(moc_root, "## 分类", root_category_lines)
+        upsert_markdown_section_bullets(moc_root, "## 最近入库", root_entry_lines)
+
+    categories = sorted({
+        str(category)
+        for _, item in entries
+        for category in list(item.get("github_categories") or [])
+        if str(category).strip()
+    })
+    for category in categories:
+        category_entries = [
+            (note_path, item)
+            for note_path, item in entries
+            if category in list(item.get("github_categories") or [])
+        ]
+        category_path = build_github_category_moc_path(obsidian_root, category)
+        category_lines = []
+        for note_path, item in category_entries:
+            title = str(item.get("knowledge_card_title") or item.get("title") or note_path.stem)
+            details: list[str] = [github_repo_name(item)]
+            source_metadata = item.get("source_metadata")
+            metadata = source_metadata if isinstance(source_metadata, dict) else {}
+            language = normalize_space(str(metadata.get("language") or ""))
+            if language:
+                details.append(language)
+            if metadata.get("stargazers_count"):
+                details.append(f"{metadata.get('stargazers_count')} stars")
+            category_lines.append(
+                "- "
+                + build_obsidian_wikilink(note_path, vault_root, title)
+                + " · "
+                + " · ".join(details)
+            )
+        if not category_path.exists():
+            category_path.write_text(
+                render_github_category_moc_note(category, category_entries, vault_root, obsidian_root, generated_at),
+                encoding="utf-8",
+            )
+        else:
+            upsert_markdown_section_bullets(category_path, "## 仓库清单", category_lines)
 
 
 def update_obsidian_index(
@@ -3364,6 +3979,13 @@ def main() -> int:
                 obsidian_vault_root,
                 output_options.obsidian_folder,
                 report_title,
+                note_paths,
+                items,
+                generated_at,
+            )
+            update_obsidian_github_mocs(
+                obsidian_vault_root,
+                output_options.obsidian_folder,
                 note_paths,
                 items,
                 generated_at,

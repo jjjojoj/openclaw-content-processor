@@ -17,6 +17,7 @@
 - skill 目录下的 `.env` 会自动加载，不需要再手工 `export` 才能让本地配置生效。
 - 对 GLM / MiniMax 这类不支持 Responses API 的服务，现在会优先兼容 `chat/completions`。
 - 如果你已经在 OpenClaw 里配置了 `zai` / GLM Coding Plan，这个 skill 现在也可以直接复用那份本地 provider 配置，不用再单独维护第二份 key。
+- GitHub 仓库现在会生成专门的仓库知识卡片，并自动挂到 Obsidian 里的 `MOC/GitHub` 分支，再细分到 `AI Agent`、`SaaS`、`FastAPI` 等分类页。
 
 ## 本次更新（v2.4.0）
 
@@ -98,6 +99,7 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 | 本地分析 | 生成 summary、highlights、keywords、analysis |
 | 结构化输出 | 保存 `report.md`、`report.json` 和逐项 JSON |
 | Obsidian 导出 | 默认输出 Vault 友好的 knowledge-card 单笔记，也保留 legacy digest 布局作为兼容模式 |
+| GitHub 知识分支 | 在 Obsidian 中为 GitHub 卡片自动建立 `MOC/GitHub` 总入口和分类导航 |
 | 批处理容错 | 单条失败不会拖垮整批 |
 
 ## 快速开始
@@ -276,6 +278,7 @@ Obsidian 模式会生成：
 - 每个来源 / 链接一条独立知识卡片 markdown
 - 适合 Dataview / 过滤 / 标签的 YAML frontmatter
 - 位于 Vault 根目录下的 `_index.md` 和 `_log.md`
+- GitHub 卡片会自动接入 `MOC/GitHub` 以及 `AI Agent`、`SaaS`、`FastAPI`、`Automation` 等分类页
 - 默认不再生成 `sources/` 目录
 
 如果你仍然需要旧的 batch digest + per-source 布局，可以显式运行：

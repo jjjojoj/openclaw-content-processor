@@ -423,9 +423,65 @@ class ContentProcessorTests(unittest.TestCase):
                 "topics": ["ui", "components"],
             },
         })
+        self.assertIn("卡片标题：", text)
         self.assertIn("核心价值：", text)
         self.assertIn("TypeScript", text)
         self.assertIn("1000", text)
+
+    def test_parse_analysis_sections_extracts_github_card_fields(self) -> None:
+        sections = MODULE.parse_analysis_sections(
+            "\n".join([
+                "卡片标题：NousResearch/hermes-agent | 自学习 AI Agent",
+                "核心价值：一个带学习循环的 Agent 框架。",
+                "适用场景：个人助手；自动化代理",
+                "方法要点：1) 先看 README；2) 再看 tools；3) 最后看维护状态",
+                "分类：AI Agent, Automation",
+                "关注点：确认权限边界和动作审计。",
+            ])
+        )
+        self.assertEqual(sections["card_title"], "NousResearch/hermes-agent | 自学习 AI Agent")
+        self.assertIn("个人助手", sections["scenarios"])
+        self.assertIn("README", sections["methods"])
+        self.assertIn("AI Agent", sections["categories"])
+
+    def test_finalize_item_for_github_uses_specialized_summary_and_categories(self) -> None:
+        item = MODULE.finalize_item({
+            "title": "hermes-agent",
+            "platform": "GitHub",
+            "platform_key": "github",
+            "content": "Hermes Agent is a self-improving autonomous agent with skills, cron and Discord integration.",
+            "warnings": [],
+            "source_metadata": {
+                "full_name": "NousResearch/hermes-agent",
+                "description": "A self-improving autonomous agent.",
+                "language": "Python",
+                "stargazers_count": 48000,
+                "topics": ["ai-agent", "automation", "discord"],
+            },
+        })
+        self.assertEqual(item["status"], "success")
+        self.assertIn("NousResearch/hermes-agent", item["summary"])
+        self.assertIn("AI Agent", item["summary"])
+        self.assertIn("定位：", item["highlights"][0])
+        self.assertIn("ai-agent", item["github_categories"])
+
+    def test_suggest_github_card_title_prefers_core_value_when_explicit_title_is_generic(self) -> None:
+        title = MODULE.suggest_github_card_title({
+            "title": "hermes-agent",
+            "platform": "GitHub",
+            "platform_key": "github",
+            "analysis": "\n".join([
+                "卡片标题：Hermes Agent",
+                "核心价值：一个带学习循环的 AI Agent 框架。",
+            ]),
+            "source_metadata": {
+                "full_name": "NousResearch/hermes-agent",
+                "description": "The agent that grows with you",
+                "topics": ["ai-agent"],
+            },
+        })
+        self.assertIn("NousResearch/hermes-agent", title)
+        self.assertIn("学习循环", title)
 
     def test_enrich_item_analysis_falls_back_to_local_when_llm_missing(self) -> None:
         item = {
@@ -757,6 +813,142 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertIn("## 适用场景", content)
         self.assertIn("## 方法 / 判断要点", content)
         self.assertIn("<details>", content)
+
+    def test_render_knowledge_card_note_for_github_includes_branch_links(self) -> None:
+        generated_at = MODULE.datetime(2026, 4, 21, 11, 5)
+        item = {
+            "title": "hermes-agent",
+            "platform": "GitHub",
+            "platform_key": "github",
+            "status": "success",
+            "source": "https://github.com/NousResearch/hermes-agent",
+            "author": "NousResearch",
+            "extract_method": "github api + readme",
+            "keywords": ["ai-agent", "automation"],
+            "github_categories": ["ai-agent", "automation"],
+            "warnings": [],
+            "summary": "NousResearch/hermes-agent 是一个 AI Agent 项目。",
+            "analysis": "\n".join([
+                "卡片标题：NousResearch/hermes-agent | 自学习 AI Agent",
+                "核心价值：一个带学习循环的 AI Agent 框架。",
+                "适用场景：个人助手；自动化代理",
+                "方法要点：1) 先看 README；2) 核对 skills 和 cron；3) 再看维护状态",
+                "分类：AI Agent, Automation",
+                "关注点：确认权限边界和动作审计。",
+            ]),
+            "analysis_method": "openai chat.completions (glm-4.7)",
+            "highlights": ["定位：带学习循环的 AI Agent 框架", "能力：多平台消息与 CLI 统一入口"],
+            "content": "README 内容。" * 30,
+            "source_metadata": {
+                "full_name": "NousResearch/hermes-agent",
+                "description": "A self-improving autonomous agent.",
+                "language": "Python",
+                "stargazers_count": 48000,
+                "topics": ["ai-agent", "automation", "discord"],
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+            note_path = obsidian_root / "2026-04-21" / "run" / "hermes.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            content = MODULE.render_knowledge_card_note(
+                item,
+                "NousResearch/hermes-agent | 自学习 AI Agent",
+                generated_at,
+                vault_root,
+                obsidian_root,
+                note_path,
+            )
+
+        self.assertIn('knowledge_branch: "GitHub"', content)
+        self.assertIn("## 仓库亮点", content)
+        self.assertIn("GitHub 仓库", content)
+        self.assertIn("AI Agent", content)
+        self.assertIn("先看 README", content)
+
+    def test_update_obsidian_github_mocs_creates_root_and_category_notes(self) -> None:
+        generated_at = MODULE.datetime(2026, 4, 21, 12, 12)
+        item = {
+            "title": "hermes-agent",
+            "platform": "GitHub",
+            "platform_key": "github",
+            "status": "success",
+            "knowledge_card_title": "NousResearch/hermes-agent | 自学习 AI Agent",
+            "github_categories": ["ai-agent", "automation"],
+            "source_metadata": {
+                "full_name": "NousResearch/hermes-agent",
+                "language": "Python",
+                "stargazers_count": 48000,
+            },
+        }
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_folder = "Inbox/内容摘要"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+            note_path = obsidian_root / "2026-04-21" / "run" / "hermes.md"
+            note_path.parent.mkdir(parents=True, exist_ok=True)
+            note_path.write_text("# hermes\n", encoding="utf-8")
+
+            MODULE.update_obsidian_github_mocs(
+                vault_root,
+                obsidian_folder,
+                [note_path],
+                [item],
+                generated_at,
+            )
+
+            root_note = (obsidian_root / "MOC" / "GitHub" / "GitHub 仓库.md").read_text(encoding="utf-8")
+            category_note = (obsidian_root / "MOC" / "GitHub" / "AI Agent.md").read_text(encoding="utf-8")
+
+        self.assertIn("# GitHub 仓库", root_note)
+        self.assertIn("NousResearch/hermes-agent | 自学习 AI Agent", root_note)
+        self.assertIn("# GitHub / AI Agent", category_note)
+        self.assertIn("48000 stars", category_note)
+
+    def test_update_obsidian_github_mocs_preserves_existing_entries(self) -> None:
+        generated_at = MODULE.datetime(2026, 4, 21, 12, 30)
+        with tempfile.TemporaryDirectory() as tmp:
+            vault_root = Path(tmp) / "Vault"
+            obsidian_folder = "Inbox/内容摘要"
+            obsidian_root = vault_root / "Inbox" / "内容摘要"
+
+            first_path = obsidian_root / "2026-04-21" / "run-a" / "a.md"
+            second_path = obsidian_root / "2026-04-21" / "run-b" / "b.md"
+            first_path.parent.mkdir(parents=True, exist_ok=True)
+            second_path.parent.mkdir(parents=True, exist_ok=True)
+            first_path.write_text("# a\n", encoding="utf-8")
+            second_path.write_text("# b\n", encoding="utf-8")
+
+            first_item = {
+                "title": "repo-a",
+                "platform": "GitHub",
+                "platform_key": "github",
+                "status": "success",
+                "knowledge_card_title": "Repo A",
+                "github_categories": ["ai-agent"],
+                "source_metadata": {"full_name": "demo/repo-a", "language": "Python", "stargazers_count": 10},
+            }
+            second_item = {
+                "title": "repo-b",
+                "platform": "GitHub",
+                "platform_key": "github",
+                "status": "success",
+                "knowledge_card_title": "Repo B",
+                "github_categories": ["ai-agent"],
+                "source_metadata": {"full_name": "demo/repo-b", "language": "Python", "stargazers_count": 20},
+            }
+
+            MODULE.update_obsidian_github_mocs(vault_root, obsidian_folder, [first_path], [first_item], generated_at)
+            MODULE.update_obsidian_github_mocs(vault_root, obsidian_folder, [second_path], [second_item], generated_at)
+
+            root_note = (obsidian_root / "MOC" / "GitHub" / "GitHub 仓库.md").read_text(encoding="utf-8")
+            category_note = (obsidian_root / "MOC" / "GitHub" / "AI Agent.md").read_text(encoding="utf-8")
+
+        self.assertIn("Repo A", root_note)
+        self.assertIn("Repo B", root_note)
+        self.assertIn("Repo A", category_note)
+        self.assertIn("Repo B", category_note)
 
 
 if __name__ == "__main__":

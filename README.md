@@ -17,6 +17,7 @@ English | [简体中文](./README.zh-CN.md)
 - `.env` files inside the skill directory are loaded automatically, so local OpenAI-compatible settings can take effect without manual export.
 - Non-OpenAI providers such as GLM / MiniMax can now use `chat/completions` style endpoints, while official OpenAI still uses `responses`.
 - If you already configured `zai` / GLM Coding Plan inside OpenClaw, this skill can now reuse that local provider config instead of maintaining a second key by hand.
+- GitHub repositories now generate repository-specific knowledge cards and are automatically linked into `MOC/GitHub` category branches such as `AI Agent`, `SaaS`, and `FastAPI`.
 
 ## What's New In v2.4.0
 
@@ -98,6 +99,7 @@ See [docs/release-validation.md](./docs/release-validation.md) for the latest re
 | Local analysis | Produces summary, highlights, keywords, and analysis text |
 | Structured output | Saves `report.md`, `report.json`, and per-item JSON files |
 | Obsidian export | Writes vault-ready knowledge-card notes by default, with a legacy digest layout available |
+| GitHub knowledge branch | Adds `MOC/GitHub` hub notes and category links for GitHub cards inside Obsidian |
 | Batch-safe execution | One bad source does not kill the whole run |
 
 ## Quick Start
@@ -276,6 +278,7 @@ The default Obsidian note set includes:
 - one knowledge-card markdown note per source/link
 - YAML frontmatter for Dataview / filtering / tagging
 - `_index.md` and `_log.md` append-only navigation files at the vault-folder root
+- GitHub cards automatically link into `MOC/GitHub` and category pages such as `AI Agent`, `SaaS`, `FastAPI`, or `Automation`
 - no `sources/` directory in the default knowledge-card layout
 
 If you still need the older batch digest + per-source layout, run:
