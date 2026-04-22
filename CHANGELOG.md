@@ -33,6 +33,8 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - Structured-list parsing now preserves decimal/version tokens like `GLM-4.7` and `Claude 4.5` instead of splitting them into broken bullets
 - Noisy short-video metadata titles are now normalized before note generation, and obviously invalid creator labels are no longer copied into Obsidian frontmatter
 - Non-GitHub prompts now request an explicit human-readable `卡片标题`, so media cards generate cleaner note titles instead of falling back to noisy source metadata
+- Douyin Playwright fallback now prefers the detail API's clean `desc` / `author.nickname` metadata over noisy page text, so bare-video URLs can still produce usable titles and authors
+- Non-GitHub knowledge-card titles now keep longer LLM-generated notebook titles instead of truncating them too early, and structured bullet rendering preserves markdown labels such as `**产品定位**`
 - README and `.env.example` now clarify that Feishu is unsupported and that `auto` output switches to Obsidian as soon as a vault path is configured
 
 ## [2.4.0] - 2026-04-19

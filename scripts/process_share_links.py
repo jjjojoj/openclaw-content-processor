@@ -772,7 +772,7 @@ def split_structured_list(text: str) -> list[str]:
     seen: set[str] = set()
     for piece in pieces:
         cleaned = re.sub(r"^\d+[\.\)、)]\s*", "", piece).strip()
-        cleaned = re.sub(r"^[>•●\-*\s,，、]+", "", cleaned).strip()
+        cleaned = re.sub(r"^(?:>\s*|•\s*|●\s*|-\s+|\*\s+|,\s*|，\s*|、\s*)+", "", cleaned).strip()
         cleaned = cleaned.rstrip("。；;，,")
         if not cleaned:
             continue
@@ -867,7 +867,7 @@ def derive_knowledge_card_title(item: dict[str, object]) -> str:
         candidate = re.sub(r"^[>•\-*\d\.\s]+", "", candidate).strip()
         candidate = candidate.rstrip("。！？!?,，；;：:")
         if candidate:
-            return shorten(candidate, 40)
+            return shorten(candidate, 64)
     return "未命名知识卡片"
 
 
@@ -906,7 +906,7 @@ def derive_learning_card_title(item: dict[str, object]) -> str:
     platform_key = str(item.get("platform_key") or "")
     title = normalize_space(str(item.get("title") or ""))
     if title and not title_needs_cleanup(title, platform_key):
-        return shorten(title.rstrip("。！？!?,，；;：:"), 40)
+        return shorten(title.rstrip("。！？!?,，；;：:"), 64)
 
     sections = parse_analysis_sections(str(item.get("analysis") or ""))
     for candidate in [
@@ -919,11 +919,11 @@ def derive_learning_card_title(item: dict[str, object]) -> str:
         normalized = re.sub(r"^(?:核心价值|适用场景|内容要点)[:：]\s*", "", candidate).strip()
         normalized = normalized.rstrip("。！？!?,，；;：:")
         if normalized:
-            return shorten(normalized, 40)
+            return shorten(normalized, 64)
 
     content = str(item.get("content") or "")
     if content:
-        return shorten(derive_title_from_content(content, "学习卡片"), 40)
+        return shorten(derive_title_from_content(content, "学习卡片"), 64)
     return "学习卡片"
 
 

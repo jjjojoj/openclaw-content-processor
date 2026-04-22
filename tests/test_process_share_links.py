@@ -14,6 +14,13 @@ assert SPEC and SPEC.loader
 sys.modules[SPEC.name] = MODULE
 SPEC.loader.exec_module(MODULE)
 
+DOUYIN_AUTH_PATH = Path(__file__).resolve().parents[1] / "scripts" / "douyin_auth.py"
+DOUYIN_SPEC = importlib.util.spec_from_file_location("content_processor_douyin_auth", DOUYIN_AUTH_PATH)
+DOUYIN_MODULE = importlib.util.module_from_spec(DOUYIN_SPEC)
+assert DOUYIN_SPEC and DOUYIN_SPEC.loader
+sys.modules[DOUYIN_SPEC.name] = DOUYIN_MODULE
+DOUYIN_SPEC.loader.exec_module(DOUYIN_MODULE)
+
 
 class ContentProcessorTests(unittest.TestCase):
     def test_extract_sources_dedupes_and_preserves_order(self) -> None:
@@ -400,6 +407,20 @@ class ContentProcessorTests(unittest.TestCase):
         )
         self.assertEqual(title, "这是一个很清晰的标题。")
 
+    def test_derive_knowledge_card_title_keeps_full_non_github_card_title(self) -> None:
+        title = MODULE.derive_knowledge_card_title({
+            "platform": "抖音",
+            "platform_key": "douyin",
+            "analysis": "\n".join([
+                "卡片标题：OpenCode 配置教程与 Anti-Gravity OS 插件",
+                "核心价值：一条关于 OpenCode 的进阶配置教程。",
+            ]),
+            "highlights": [],
+            "summary": "",
+            "title": "原始标题",
+        })
+        self.assertEqual(title, "OpenCode 配置教程与 Anti-Gravity OS 插件")
+
     def test_split_structured_list_preserves_decimal_versions(self) -> None:
         values = MODULE.split_structured_list(
             "1) 支持 GLM-4.7；2) 可接入 Claude 4.5 Opus；3) 提供 MCP 配置"
@@ -408,6 +429,15 @@ class ContentProcessorTests(unittest.TestCase):
             "支持 GLM-4.7",
             "可接入 Claude 4.5 Opus",
             "提供 MCP 配置",
+        ])
+
+    def test_split_structured_list_preserves_markdown_bold_labels(self) -> None:
+        values = MODULE.split_structured_list(
+            "1) **产品定位**：开源版 Claude Code；2) **核心功能**：支持 Session 并行"
+        )
+        self.assertEqual(values, [
+            "**产品定位**：开源版 Claude Code",
+            "**核心功能**：支持 Session 并行",
         ])
 
     def test_split_sentences_limits_analysis_budget(self) -> None:
@@ -600,6 +630,7 @@ class ContentProcessorTests(unittest.TestCase):
             mock.patch.object(MODULE, "load_yt_metadata", return_value=({}, ["Fresh cookies required"])),
             mock.patch.object(MODULE, "fetch_yt_subtitles", return_value=("", "", ["字幕抓取失败"])),
             mock.patch.object(MODULE, "download_media_for_transcription", return_value=(None, ["媒体下载失败"])),
+            mock.patch.object(MODULE, "download_douyin_media_with_playwright", return_value=(None, ["Playwright 兜底失败"])),
             mock.patch.object(MODULE, "extract_web_text", return_value=("", "", ["网页正文提取失败"])),
             mock.patch.object(MODULE, "fetch_html", return_value=(None, {}, ["网页抓取失败"])),
         ):
@@ -693,6 +724,36 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertEqual(item["extract_method"], "yt-dlp subtitles")
         self.assertEqual(item["title"], "OpenCode 是近期热度最高的 AI 编程工具。")
         self.assertEqual(item["author"], "")
+
+    def test_extract_douyin_detail_metadata_prefers_clean_desc_and_author(self) -> None:
+        metadata = DOUYIN_MODULE.extract_douyin_detail_metadata({
+            "status_code": 0,
+            "aweme_detail": {
+                "desc": "OpenCode详细攻略，开源版Claude Code ，免费模型与神级插件。\n#AI #编程",
+                "author": {
+                    "nickname": "技术爬爬虾",
+                    "unique_id": "40877664675",
+                },
+            },
+        })
+        self.assertEqual(
+            metadata["title"],
+            "OpenCode详细攻略，开源版Claude Code ，免费模型与神级插件。",
+        )
+        self.assertEqual(metadata["author"], "技术爬爬虾")
+
+    def test_normalize_douyin_desc_title_prefers_first_sentence(self) -> None:
+        title = DOUYIN_MODULE.normalize_douyin_desc_title(
+            "OpenCode详细攻略，开源版Claude Code ，免费模型与神级插件。 OpenCode 是近期热度最高的AI编程工具。 #AI #编程"
+        )
+        self.assertEqual(title, "OpenCode详细攻略，开源版Claude Code ，免费模型与神级插件。")
+
+    def test_normalize_douyin_author_rejects_noisy_copy(self) -> None:
+        author = DOUYIN_MODULE.normalize_douyin_author(
+            "OpenCode详细攻略，开源版Claude Code ，免费模型与神级插件。 #AI #编程",
+            title="OpenCode详细攻略，开源版Claude Code ，免费模型与神级插件。",
+        )
+        self.assertEqual(author, "")
 
     def test_build_item_retries_douyin_login_before_playwright_fallback(self) -> None:
         with (

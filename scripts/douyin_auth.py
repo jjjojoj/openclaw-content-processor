@@ -86,6 +86,106 @@ def normalize_title(title: str) -> str:
     return cleaned.strip()
 
 
+def normalize_space(text: str) -> str:
+    cleaned = (text or "").replace("\r", "\n")
+    cleaned = re.sub(r"[ \t]+", " ", cleaned)
+    cleaned = re.sub(r"\n{2,}", "\n", cleaned)
+    return cleaned.strip()
+
+
+def normalize_douyin_desc_title(text: str) -> str:
+    cleaned = normalize_space(text)
+    if not cleaned:
+        return ""
+
+    for line in cleaned.splitlines():
+        candidate = re.sub(r"#\S+", " ", line)
+        candidate = re.sub(r"\s+", " ", candidate).strip("“”\"' ").strip()
+        sentence_match = re.match(r"^(.+?[。！？!?])(?:\s|$)", candidate)
+        if sentence_match:
+            candidate = sentence_match.group(1)
+        elif len(candidate) > 48 and "，" in candidate:
+            parts = [part.strip() for part in candidate.split("，") if part.strip()]
+            candidate = "，".join(parts[:2]).rstrip("，")
+        candidate = candidate.rstrip("，,、；;：:")
+        if candidate:
+            return candidate[:80].rstrip()
+    return ""
+
+
+def normalize_douyin_author(author: str, title: str = "") -> str:
+    cleaned = normalize_space(author)
+    if not cleaned:
+        return ""
+    cleaned = cleaned.lstrip("@")
+    cleaned = cleaned.rstrip("，,、；;：:").strip()
+    title_text = normalize_space(title)
+    if not cleaned:
+        return ""
+    if title_text and cleaned == title_text:
+        return ""
+    if len(cleaned) > 40:
+        return ""
+    if any(token in cleaned.lower() for token in ["http://", "https://"]):
+        return ""
+    punctuation_count = sum(cleaned.count(mark) for mark in "，,。！？!?；;")
+    if punctuation_count >= 3:
+        return ""
+    if "#" in cleaned:
+        return ""
+    return cleaned
+
+
+def iter_douyin_aweme_items(payload: Any) -> list[dict[str, Any]]:
+    if not isinstance(payload, dict):
+        return []
+
+    candidates: list[dict[str, Any]] = []
+    for key in ["aweme_detail", "item_detail", "detail"]:
+        value = payload.get(key)
+        if isinstance(value, dict):
+            candidates.append(value)
+    for key in ["aweme_list", "item_list", "aweme_details"]:
+        value = payload.get(key)
+        if isinstance(value, list):
+            candidates.extend(item for item in value if isinstance(item, dict))
+    if not candidates and any(key in payload for key in ["desc", "author", "video", "music"]):
+        candidates.append(payload)
+    return candidates
+
+
+def extract_douyin_detail_metadata(payload: Any) -> dict[str, str]:
+    for aweme in iter_douyin_aweme_items(payload):
+        share_info = aweme.get("share_info") if isinstance(aweme.get("share_info"), dict) else {}
+        title = normalize_douyin_desc_title(
+            str(
+                aweme.get("desc")
+                or share_info.get("share_title")
+                or share_info.get("share_desc")
+                or aweme.get("title")
+                or ""
+            )
+        )
+        author_obj = aweme.get("author") if isinstance(aweme.get("author"), dict) else {}
+        author = normalize_douyin_author(
+            str(
+                author_obj.get("nickname")
+                or author_obj.get("display_id")
+                or author_obj.get("unique_id")
+                or author_obj.get("short_id")
+                or author_obj.get("uid")
+                or ""
+            ),
+            title=title,
+        )
+        if title or author:
+            return {
+                "title": title,
+                "author": author,
+            }
+    return {"title": "", "author": ""}
+
+
 def classify_media_url(url: str) -> str:
     lower = (url or "").lower()
     if not lower.startswith("http"):
@@ -268,9 +368,12 @@ def capture_douyin_media_on_page(page, url: str, wait_seconds: int = 8) -> dict[
 
     response_urls: list[str] = []
     detail_payload_urls: list[str] = []
+    detail_title = ""
+    detail_author = ""
     warnings: list[str] = []
 
     def handle_response(response) -> None:
+        nonlocal detail_title, detail_author
         url_value = response.url
         lower = url_value.lower()
         if any(hint in lower for hint in VIDEO_URL_HINTS):
@@ -280,6 +383,11 @@ def capture_douyin_media_on_page(page, url: str, wait_seconds: int = 8) -> dict[
                 payload = response.json()
             except Exception:  # noqa: BLE001
                 return
+            detail_metadata = extract_douyin_detail_metadata(payload)
+            if detail_metadata.get("title") and not detail_title:
+                detail_title = str(detail_metadata["title"])
+            if detail_metadata.get("author") and not detail_author:
+                detail_author = str(detail_metadata["author"])
             detail_payload_urls.extend(try_extract_media_urls_from_payload(payload))
 
     page.on("response", handle_response)
@@ -314,21 +422,39 @@ def capture_douyin_media_on_page(page, url: str, wait_seconds: int = 8) -> dict[
     except Exception:  # noqa: BLE001
         video_src = ""
 
-    title = normalize_title(page.title())
-    author = ""
+    title = detail_title or normalize_douyin_desc_title(normalize_title(page.title()))
+    author = detail_author
     for selector in [
         '[data-e2e="video-author-nickname"]',
         '[data-e2e="video-author-name"]',
+        '[data-e2e="user-info-name"]',
         'h1 span',
     ]:
+        if author:
+            break
         try:
             value = page.locator(selector).first.text_content(timeout=1200) or ""
         except Exception:  # noqa: BLE001
             value = ""
-        value = value.strip()
+        value = normalize_douyin_author(value, title=title)
         if value:
             author = value
             break
+
+    if not title:
+        for selector in [
+            'h1[data-e2e="video-desc"]',
+            '[data-e2e="video-desc"]',
+            "h1",
+        ]:
+            try:
+                value = page.locator(selector).first.text_content(timeout=1200) or ""
+            except Exception:  # noqa: BLE001
+                value = ""
+            value = normalize_douyin_desc_title(value)
+            if value:
+                title = value
+                break
 
     candidate_urls: list[str] = []
     for collection in [detail_payload_urls, response_urls, [video_src]]:
