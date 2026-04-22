@@ -1,12 +1,17 @@
 # Release Validation
 
-Last updated: `2026-04-19`
+Last updated: `2026-04-22`
 
-This document records the checks used to cut `v2.4.0` and should remain the baseline for future stable releases.
+This document keeps two truths separate:
 
-## Installation Validation
+- the stable release baseline (`v2.4.0`)
+- the current `main` branch snapshot, which already contains newer AI + Obsidian improvements
 
-The current release-ready checklist is:
+## Stable release baseline: `v2.4.0`
+
+The checks used to cut `v2.4.0` remain the minimum baseline for future stable tags.
+
+### Installation validation
 
 ```bash
 bash scripts/bootstrap.sh --install-python
@@ -15,27 +20,22 @@ bash scripts/bootstrap.sh
 .venv/bin/python -m unittest discover -s tests -v
 ```
 
-Latest local outcome on `2026-04-19`:
+Latest stable-baseline outcome on `2026-04-19`:
 
 - `bootstrap.sh --install-python`: passed
 - `bootstrap.sh`: passed
 - `py_compile`: passed
-- `unittest`: passed (`33` tests)
+- `unittest`: passed (`33` tests at the time)
 
-Current local validation after the latest GLM + Douyin hardening:
+### Automated live regression
 
-- `py_compile`: passed
-- `unittest`: passed (`44` tests)
-
-## Automated Live Regression
-
-The lightweight public-link regression entrypoint is:
+Public-link regression entrypoint:
 
 ```bash
 .venv/bin/python scripts/run_regression.py --preset extended --analysis-mode heuristic
 ```
 
-The `extended` preset covers:
+`extended` covers:
 
 - GitHub
 - Zhihu
@@ -43,9 +43,7 @@ The `extended` preset covers:
 - Toutiao
 - Bilibili
 
-This preset is intended to verify the layered extraction chain without requiring private cookies or paid APIs.
-
-Latest local outcome on `2026-04-19`: passed (`5/5 success`)
+Stable-baseline outcome on `2026-04-19`: passed (`5/5 success`)
 
 | Platform | Result | Extraction path |
 | --- | --- | --- |
@@ -55,13 +53,43 @@ Latest local outcome on `2026-04-19`: passed (`5/5 success`)
 | Toutiao | success | `scrapling stealthy-fetch [.article-content]` |
 | Bilibili | success | `yt-dlp download + whisper-cli` |
 
-## Manual Real-Link Regression
+## Current `main` branch snapshot
 
-In addition to the preset above, we manually verified representative public share links during the `2026-03-26` and `2026-04-18` hardening cycles:
+These checks describe the repository as it exists on `main`, not the last stable tag.
 
-| Platform | Result | Extraction path |
+### Local verification on `2026-04-22`
+
+```bash
+.venv/bin/python -m py_compile scripts/process_share_links.py scripts/douyin_auth.py scripts/run_regression.py
+.venv/bin/python -m unittest discover -s tests -v
+```
+
+Outcome:
+
+- `py_compile`: passed
+- `unittest`: passed (`67` tests)
+
+### Representative real outputs currently present
+
+These are not abstract claims; they correspond to real notes / reports already generated in a working vault.
+
+| Source type | Result | Extraction path |
 | --- | --- | --- |
-| GitHub | success | `github api + readme` |
+| GitHub repo | success | `deepwiki overview` |
+| Douyin short video | success | `playwright douyin download + whisper-cli` |
+
+Representative notes already written by the current pipeline:
+
+- `NousResearch/hermes-agent`
+- `OpenCode 保姆级配置与实战指南`
+
+## Manual real-link regression notes
+
+In addition to the public preset above, the project has manually verified representative public share links during the hardening cycles around `2026-03-26`, `2026-04-19`, and `2026-04-22`.
+
+| Platform | Result | Typical extraction path |
+| --- | --- | --- |
+| GitHub | success | `deepwiki overview` or `github api + readme` |
 | Zhihu | success | article extraction |
 | CSDN | success | article extraction |
 | Toutiao | success | `scrapling stealthy-fetch [.article-content]` |
@@ -69,17 +97,17 @@ In addition to the preset above, we manually verified representative public shar
 | WeChat | success | `scrapling stealthy-fetch [#js_content]` |
 | Xiaohongshu | success | `yt-dlp download + whisper-cli` |
 | X/Twitter | success | `yt-dlp download + whisper-cli` |
-| Weibo | partial | `yt-dlp metadata only` on a very short clip |
+| Weibo | partial | `yt-dlp metadata only` on very short clips |
 | Douyin | success | `playwright douyin download + whisper-cli` |
 
 Notes:
 
-- `partial` is an honest outcome, not a silent failure. For short or low-speech clips, metadata may be the only reliable result.
-- Social-platform success rates can change over time because anti-bot behavior changes.
-- Cookie, browser-session, and referer support exist for users who need stronger access stability.
-- Feishu / Feishu Wiki upload is not part of the release gate. Supported delivery targets in `v2.4.0` are local desktop output and Obsidian export.
+- `partial` is an honest outcome, not a hidden failure.
+- social-platform success rates can change over time because anti-bot behavior changes
+- browser cookies, saved auth, and referer support exist for users who need stronger access stability
+- Feishu / Feishu Wiki upload is intentionally outside the current release scope
 
-## CI vs Self-Hosted Runner Strategy
+## Public CI vs self-hosted runner
 
 Recommended split:
 
@@ -96,15 +124,15 @@ Recommended split:
 
 Important note:
 
-- Public CI should not attempt real Douyin QR login.
-- Real QR login is only appropriate in a self-hosted runner, VNC session, or remote desktop where a human can actually scan the code.
-- If such an environment is intentionally used, the login gate can be opened explicitly with `CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1`.
+- public CI should not attempt real Douyin QR login
+- real QR login only makes sense in a self-hosted runner, VNC session, or remote desktop where a human can actually scan the code
+- if you intentionally use such an environment, open the gate explicitly with `CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1`
 
-## Stable Release Gate
+## Stable release gate
 
-Before publishing a stable tag:
+Before publishing a new stable tag:
 
-- all installation checks above should pass on a clean local runtime
+- the stable-baseline installation checks should pass on a clean runtime
 - unit tests should remain green
-- at least one GitHub, one article page, one dynamic page, and one media link should succeed in live regression
+- at least one GitHub link, one article page, one dynamic page, and one media link should succeed
 - mixed-outcome platforms such as Weibo should be documented honestly instead of being hidden

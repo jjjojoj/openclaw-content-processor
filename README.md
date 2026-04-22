@@ -1,32 +1,37 @@
 # OpenClaw Content Processor
 
-> Turn share links into Obsidian-friendly local notes and briefing reports.
+> AI-powered link ingestion for OpenClaw and Obsidian. Turn GitHub repos, articles, and short videos into linked knowledge cards inside your vault.
 
 English | [简体中文](./README.zh-CN.md)
 
 [![CI](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml/badge.svg)](https://github.com/jjjojoj/openclaw-content-processor/actions/workflows/ci.yml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](./LICENSE)
 
-`openclaw-content-processor` is an OpenClaw skill and standalone CLI tool that takes one or more share links, extracts the useful content, and, once an Obsidian vault is configured, writes them into the vault as knowledge-card notes by default. Legacy desktop output is kept only as a compatibility path.
+`openclaw-content-processor` is both an OpenClaw skill and a standalone CLI tool. Its main job is no longer "make a quick summary in chat"; it is "capture the source, run AI analysis, and write a reusable note into Obsidian." Desktop reports still exist as a compatibility path, but the product direction is clearly AI + Obsidian.
 
-![Report preview](./assets/report-preview.svg)
+![Obsidian graph preview](./assets/obsidian-graph-preview.svg)
 
-## Workspace Update
+## Why this repo feels different
 
-- The current workspace build defaults to `knowledge-card` output in Obsidian mode.
-- `.env` files inside the skill directory are loaded automatically, so local OpenAI-compatible settings can take effect without manual export.
-- Non-OpenAI providers such as GLM / MiniMax can now use `chat/completions` style endpoints, while official OpenAI still uses `responses`.
-- If you already configured `zai` / GLM Coding Plan inside OpenClaw, this skill can now reuse that local provider config instead of maintaining a second key by hand.
-- GitHub repositories now generate repository-specific knowledge cards, enrich from DeepWiki overview pages when available, and are automatically linked into `MOC/GitHub` category branches such as `AI Agent`, `SaaS`, and `FastAPI`.
+- Obsidian-first: one source becomes one reusable knowledge card, not a disposable chat reply
+- GitHub-first workflow: repositories go through a dedicated path and are linked into `MOC/GitHub`
+- AI analysis on top of extraction: OpenAI `responses` or OpenAI-compatible `chat/completions`
+- layered extraction: DeepWiki / GitHub API / README / `trafilatura` / `Scrapling` / `yt-dlp` / `whisper-cli` / Playwright
+- local output only: Feishu / Feishu Wiki upload is explicitly out of scope
 
-## What's New In v2.4.0
+## Main branch snapshot
 
-- Obsidian export is now a first-class output mode, with YAML frontmatter and one note per source.
-- Douyin handling is more resilient: saved auth -> QR-login retry -> Playwright network interception fallback.
-- Temporary mp4 files used only for transcription are deleted automatically after the transcript is produced.
-- Feishu / Feishu Wiki upload is not supported in the current release. When an Obsidian vault is configured, the default output target is your Obsidian vault.
+Latest stable tag: `v2.4.0`
 
-## Install In OpenClaw
+Current `main` already includes additional improvements that are not part of the `v2.4.0` tag yet:
+
+- GitHub cards now use a DeepWiki-first flow, with GitHub API + README as the fallback / evidence path
+- GitHub notes are written as student-friendly "how to learn this repo" cards
+- short-video cards now keep cleaner titles, cleaner authors, and better structured bullets
+- `.env` inside the skill directory loads automatically
+- latest local verification on `2026-04-22`: `py_compile` passed, `67` tests passed
+
+## Install in OpenClaw
 
 If you want OpenClaw to install and bootstrap this skill for you, copy this prompt:
 
@@ -37,72 +42,47 @@ https://github.com/jjjojoj/openclaw-content-processor.git
 After installing:
 1. Run the required bootstrap/setup steps.
 2. Check whether dependencies such as ffmpeg and whisper-cli are available.
-3. If I use Obsidian, tell me how to configure the vault path and the exact command I can run right away.
+3. If I use Obsidian, configure my vault path and tell me the exact command I can run right away.
+4. If OpenClaw can reuse my local GLM / z.ai provider config, enable that too.
 ```
 
 If the skill list does not refresh immediately, restart OpenClaw once.
 
-It is designed for:
+## What it handles
 
 - GitHub repositories
 - regular article pages
 - dynamic pages such as WeChat / Zhihu / CSDN / Toutiao
-- video and social links such as Bilibili, Xiaohongshu, Weibo, X/Twitter, Douyin, and YouTube
+- social and video links such as Douyin, Bilibili, Xiaohongshu, Weibo, X/Twitter, and YouTube
+- local-first note delivery into Obsidian, with desktop output kept only as fallback / compatibility
 
-## Why This Exists
+## Pipeline
 
-Most link summarizers either stay inside chat or only handle one platform well. This project is opinionated in a different way:
+### 1. Source ingestion
 
-- local-first: always write notes to disk first, with Obsidian as a first-class target
-- local-only outputs: Feishu / Wiki upload is intentionally out of scope in the current release
-- multi-source: accept one or many links in one run
-- layered fallback: use different extractors for GitHub, static web, dynamic pages, and media
-- automation-friendly: emit both Markdown and structured JSON
+Pass one or more links in one run. The tool keeps source order and processes them as one batch.
 
-## Validated Status
+### 2. Extraction
 
-Current stable release: `v2.4.0`
+- GitHub: `DeepWiki overview -> GitHub API metadata -> README / headings`
+- articles: `trafilatura`
+- harder dynamic pages: `Scrapling`
+- media: subtitles first, then `ffmpeg + whisper-cli`
+- Douyin: `saved auth -> QR login retry -> Playwright download fallback`
 
-Stable-release validation last refreshed on `2026-04-19`:
+### 3. Analysis
 
-| Platform | Status | Notes |
-| --- | --- | --- |
-| GitHub | Stable | Uses GitHub API + README, and supplements with DeepWiki overview when available |
-| Generic web pages | Stable | Main path uses `trafilatura` |
-| WeChat | Stable | Usually succeeds via `Scrapling` |
-| Zhihu / CSDN | Stable | Real links verified |
-| Toutiao | Usually works | Depends on page structure and anti-bot behavior |
-| Bilibili | Usually works | Subtitles first, then `whisper-cli` fallback |
-| Xiaohongshu | Usually works | May need media transcription |
-| X/Twitter | Mixed | Public video posts can work, but quality depends on transcription |
-| Weibo | Mixed | Short noisy videos may become `metadata-only partial` |
-| Douyin | Usually works | Order is “saved auth -> QR login retry -> Playwright download fallback” |
-| YouTube | Supported | Public videos usually work without extra auth |
+- official OpenAI: `responses`
+- GLM / MiniMax / compatible providers: `chat/completions`
+- OpenClaw local `zai` provider can be reused instead of maintaining a second key
 
-## Release Validation
+### 4. Delivery
 
-The current stable release is backed by two validation layers:
+- recommended: Obsidian knowledge-card notes
+- legacy fallback: desktop `report.md` / `report.json`
+- structured metadata is always kept in sibling `*.report.json`
 
-- installation validation: `bash scripts/bootstrap.sh --install-python`, `bash scripts/bootstrap.sh`, `.venv/bin/python -m py_compile ...`, and `.venv/bin/python -m unittest discover -s tests -v`
-- live-link validation: public GitHub, Zhihu, CSDN, Toutiao, and Bilibili samples were rechecked on `2026-04-19`; representative WeChat, Xiaohongshu, X/Twitter, Weibo, and Douyin flows remain documented in the release validation notes
-
-See [docs/release-validation.md](./docs/release-validation.md) for the latest release checklist, command set, and platform notes.
-
-## Features
-
-| Capability | What it does |
-| --- | --- |
-| GitHub extractor | Pulls repo metadata, topics, stars, default branch, README, and DeepWiki overview context when available |
-| Web extractor | Uses `trafilatura` for article-style pages |
-| Dynamic-page fallback | Uses `Scrapling` for harder pages |
-| Media pipeline | Uses `yt-dlp` subtitles first, then `ffmpeg + whisper-cli` |
-| Local analysis | Produces summary, highlights, keywords, and analysis text |
-| Structured output | Saves `report.md` / `report.json` in desktop mode, and knowledge-card markdown + sibling `*.report.json` in Obsidian mode |
-| Obsidian export | Writes vault-ready knowledge-card notes by default, with a legacy digest layout available |
-| GitHub knowledge branch | Adds `MOC/GitHub` hub notes and category links for GitHub cards inside Obsidian |
-| Batch-safe execution | One bad source does not kill the whole run |
-
-## Quick Start
+## Quick start
 
 ### 1. Install system dependencies
 
@@ -112,7 +92,7 @@ macOS:
 brew install ffmpeg whisper-cpp
 ```
 
-### 2. Install local Python runtime
+### 2. Install the local Python runtime
 
 ```bash
 bash scripts/bootstrap.sh --install-python
@@ -124,23 +104,32 @@ This installs the skill-local runtime into `.venv/`, including:
 - `trafilatura`
 - `Scrapling`
 
-### 2.5. Reuse OpenClaw's GLM config (optional, recommended)
+### 3. Configure Obsidian output
 
-If OpenClaw already has a working `zai` / GLM Coding Plan setup, enable this in the skill `.env`:
+The cleanest setup is to put the vault path in `.env`:
+
+```env
+CONTENT_PROCESSOR_OUTPUT_MODE=obsidian
+CONTENT_PROCESSOR_OBSIDIAN_VAULT=/absolute/path/to/your/vault
+CONTENT_PROCESSOR_OBSIDIAN_FOLDER=Inbox/内容摘要
+CONTENT_PROCESSOR_OBSIDIAN_LAYOUT=knowledge-card
+```
+
+If OpenClaw already has a working GLM Coding Plan setup, you can also reuse it:
 
 ```env
 CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1
 CONTENT_PROCESSOR_OPENCLAW_MODEL_REF=zai/glm-4.7
 ```
 
-When enabled, the skill reads the local `zai` provider from `~/.openclaw/openclaw.json` and reuses that Coding Plan setup. The default coding-plan analysis model is `glm-4.7`. Flash models are no longer the recommended default for coding-plan analysis.
+See [`.env.example`](./.env.example) for the full set of options.
 
-### 3. Run it
+### 4. Run it
 
-Recommended Obsidian flow:
+Recommended GitHub example:
 
 ```bash
-bash scripts/run.sh "https://github.com/openai/openai-python"
+bash scripts/run.sh "https://github.com/NousResearch/hermes-agent"
 ```
 
 Explicit Obsidian mode:
@@ -150,32 +139,24 @@ bash scripts/run.sh \
   --knowledge-card \
   --vault "$HOME/Documents/MyVault" \
   --folder "Inbox/内容摘要" \
-  "https://github.com/openai/openai-python"
+  "https://github.com/NousResearch/hermes-agent"
 ```
 
-Or let it also check system dependencies:
+Or let it verify local dependencies on the same run:
 
 ```bash
-bash scripts/run.sh --auto-bootstrap "https://github.com/openai/openai-python"
+bash scripts/run.sh --auto-bootstrap "https://github.com/NousResearch/hermes-agent"
 ```
 
-## Usage
+## Usage examples
 
-### Basic CLI
-
-```bash
-bash scripts/run.sh \
-  "https://github.com/openai/openai-python" \
-  "https://mp.weixin.qq.com/s/xxxxxxxx"
-```
-
-### Explicit title and sources
+### GitHub + article
 
 ```bash
 bash scripts/run.sh \
-  --title "Today's Link Briefing" \
-  --source "https://x.com/..." \
-  --source "https://video.weibo.com/show?fid=..."
+  --title "AI Reading Inbox" \
+  --source "https://github.com/NousResearch/hermes-agent" \
+  --source "https://mp.weixin.qq.com/s/xxxxxxxx"
 ```
 
 ### Obsidian-first workflow
@@ -185,9 +166,9 @@ bash scripts/run.sh \
   --obsidian \
   --vault "$HOME/Documents/MyVault" \
   --folder "Inbox/内容摘要" \
-  --title "AI Links Inbox" \
-  --source "https://github.com/openai/openai-python" \
-  --source "https://mp.weixin.qq.com/s/xxxxxxxx"
+  --title "Today's Knowledge Inbox" \
+  --source "https://github.com/anomalyco/opencode" \
+  --source "https://v.douyin.com/xxxxxxxx/"
 ```
 
 ### With browser session / cookies
@@ -205,7 +186,7 @@ bash scripts/run.sh \
 bash scripts/run.sh --login-douyin
 ```
 
-After a successful scan, the skill saves the auth state under `auth/douyin/` and reuses it automatically for future Douyin links. If you only want to verify that the real media URL is resolvable first, run:
+After a successful scan, the skill saves auth under `auth/douyin/` and reuses it automatically for later Douyin links. If you only want to verify the real media URL first:
 
 ```bash
 bash scripts/run.sh --resolve-douyin-url "https://v.douyin.com/xxxxxxxx/"
@@ -218,190 +199,76 @@ CONTENT_PROCESSOR_ALLOW_NON_TTY_DOUYIN_LOGIN=1 \
 bash scripts/run.sh --login-douyin
 ```
 
-### Use OpenClaw's GLM provider for analysis
+## What gets written into Obsidian
 
-```bash
-CONTENT_PROCESSOR_USE_OPENCLAW_ZAI=1 \
-bash scripts/run.sh \
-  --analysis-mode llm \
-  "https://github.com/openai/openai-python"
-```
-
-The Douyin media path now follows this order:
-
-- try saved cookies / auth first
-- if auth is still required, trigger one QR-login retry
-- if that still does not work, fall back to Playwright network interception
-
-Temporary mp4 files downloaded only for transcription are deleted automatically after transcription finishes, so they do not accumulate in the final report output.
-
-### Lightweight regression
-
-```bash
-python scripts/run_regression.py --preset core
-```
-
-## Output
-
-Default desktop output root:
+Recommended knowledge-card layout:
 
 ```text
-~/Desktop/内容摘要/YYYY-MM-DD/<timestamp>/
-```
-
-Legacy desktop mode can still produce:
-
-```text
-report.md
-report.json
-```
-
-Obsidian mode produces:
-
-```text
-<Vault>/<Folder>/
+<Vault>/Inbox/内容摘要/
   _index.md
+  MOC/
+    GitHub/
+      GitHub 仓库.md
+      AI Agent.md
+      Developer Tool.md
   YYYY-MM-DD/
-    Agent boundary control.md
-    20260420_194000_Agent_boundary_control.report.json
+    NousResearch_hermes-agent.md
+    OpenCode_保姆级配置与实战指南.md
+    20260422_205925_OpenCode全攻略.report.json
 ```
 
-The default Obsidian note set includes:
+Important details:
 
-- one knowledge-card markdown note per source/link
-- YAML frontmatter for Dataview / filtering / tagging
-- `_index.md` as the vault-folder root entry point
-- GitHub cards automatically link into `MOC/GitHub` and category pages such as `AI Agent`, `SaaS`, `FastAPI`, or `Automation`
-- GitHub cards prefer student-friendly project breakdowns: what problem the repo solves, how the system is layered, which entrypoints matter, and what to read first
-- high-confidence web / GitHub cards stay clean by default; folded raw evidence only appears for fallback / partial captures or transcript-style media
-- no `sources/` directory in the default knowledge-card layout
+- one source -> one markdown knowledge card
+- GitHub cards keep the exact repository name as the note title
+- GitHub cards are linked into `MOC/GitHub` category branches automatically
+- `_index.md` acts as the main inbox entry point
+- `_log.md` and per-run `items/` folders are no longer generated
 
-If you still need the older batch digest + per-source layout, run:
+## Example output style
 
-```bash
-bash scripts/run.sh --digest --vault "$HOME/Documents/MyVault" "https://example.com"
-```
+Real cards already generated with the current pipeline include:
 
-`report.json` includes:
+- `NousResearch/hermes-agent`: a GitHub learning card with sections like "what problem this repo solves", "how the system is layered", and "which files to read first"
+- `OpenCode 保姆级配置与实战指南`: a Douyin-derived card built from `playwright douyin download + whisper-cli`, then rewritten into a practical learning note
 
-- overall run status
-- counts for success / partial / failed items
-- tool and analysis metadata
-- per-item summaries, warnings, extract methods, and content stats
+This is the intended output style: readable enough for humans, structured enough for Obsidian graph / Dataview workflows, and grounded enough to avoid freeform hallucinated summaries.
 
-Typical CLI response:
+## Platform support
 
-```json
-{
-  "schema_version": "1.0.0",
-  "status": "success",
-  "report_title": "GitHub validation",
-  "output_dir": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20",
-  "report_md": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/OpenAI_Python_SDK.md",
-  "report_json": "/Users/you/Documents/MyVault/Inbox/内容摘要/2026-04-20/20260420_194000_GitHub验证.report.json"
-```
+Current stable tag: `v2.4.0`
 
-## Extraction Strategy
+| Platform | Status | Notes |
+| --- | --- | --- |
+| GitHub | Stable | Current `main` prefers DeepWiki overview first, then uses GitHub API + README as fallback / evidence |
+| Generic web pages | Stable | Main path uses `trafilatura` |
+| WeChat | Stable | Usually succeeds via `Scrapling` |
+| Zhihu / CSDN | Stable | Real links verified |
+| Toutiao | Usually works | Depends on page structure and anti-bot behavior |
+| Bilibili | Usually works | Subtitles first, then `whisper-cli` fallback |
+| Xiaohongshu | Usually works | May need media transcription |
+| X/Twitter | Mixed | Public video posts can work, but quality depends on transcription |
+| Weibo | Mixed | Short noisy videos may become `metadata-only partial` |
+| Douyin | Usually works | Order is `saved auth -> QR login retry -> Playwright download fallback` |
+| YouTube | Supported | Public videos usually work without extra auth |
 
-Different sources use different pipelines on purpose:
+## Validation
 
-- GitHub repositories: `GitHub API + README (+ DeepWiki overview when available)`
-- Regular web pages: `trafilatura`
-- Dynamic / anti-bot pages: `Scrapling`
-- Media links: `yt-dlp` subtitles first
-- No usable subtitles: `ffmpeg + whisper-cli`
-- Analysis layer: official OpenAI uses `responses`; non-OpenAI-compatible providers default to `chat/completions`; local heuristic remains the final fallback
+The repository homepage is intentionally more honest than marketing-heavy. The current documented state is:
 
-## Configuration
+- stable release baseline: `v2.4.0`
+- latest `main` verification on `2026-04-22`: `py_compile` passed, `67` tests passed
+- representative GitHub run: `deepwiki overview`
+- representative Douyin run: `playwright douyin download + whisper-cli`
 
-See [.env.example](./.env.example) for the full list.
+See [docs/release-validation.md](./docs/release-validation.md) for the stable release checklist, public CI vs self-hosted runner strategy, and current manual regression notes.
 
-Most useful variables:
+## Scope and non-goals
 
-- `OPENAI_API_KEY`
-- `OPENAI_BASE_URL`
-- `CONTENT_PROCESSOR_OPENAI_RESPONSES_URL`
-- `CONTENT_PROCESSOR_ANALYSIS_MODE`
-- `CONTENT_PROCESSOR_ANALYSIS_MODEL`
-- `CONTENT_PROCESSOR_OUTPUT_MODE`
-- `CONTENT_PROCESSOR_OBSIDIAN_VAULT`
-- `CONTENT_PROCESSOR_OBSIDIAN_FOLDER`
-- `CONTENT_PROCESSOR_OBSIDIAN_LAYOUT`
-- `CONTENT_PROCESSOR_COOKIES_FILE`
-- `CONTENT_PROCESSOR_COOKIES_FROM_BROWSER`
-- `CONTENT_PROCESSOR_COOKIE_HEADER`
-- `CONTENT_PROCESSOR_REFERER`
-- `WHISPER_MODEL`
-
-## OpenClaw Integration
-
-This repository contains both human-facing and OpenClaw-facing files:
-
-- [README.md](./README.md): human documentation
-- [SKILL.md](./SKILL.md): OpenClaw skill instructions
-- [agents/openai.yaml](./agents/openai.yaml): UI metadata for OpenClaw skill lists and default prompts
-
-If you only want the CLI workflow, `agents/openai.yaml` is not required.
-
-## Repository Layout
-
-```text
-.
-├── assets/
-│   └── report-preview.svg
-├── docs/
-│   ├── release-validation.md
-│   └── release-validation.zh-CN.md
-├── README.md
-├── README.zh-CN.md
-├── CHANGELOG.md
-├── LICENSE
-├── SKILL.md
-├── .env.example
-├── .github/workflows/ci.yml
-├── agents/openai.yaml
-├── scripts/
-│   ├── bootstrap.sh
-│   ├── run.sh
-│   ├── process_share_links.py
-│   └── run_regression.py
-└── tests/
-    └── test_process_share_links.py
-```
-
-## Development
-
-Run local checks:
-
-```bash
-python3 -m py_compile scripts/process_share_links.py scripts/run_regression.py
-python3 -m unittest discover -s tests -v
-python3 scripts/run_regression.py --preset github
-```
-
-GitHub Actions runs:
-
-- local runtime bootstrap
-- Python compile checks
-- unit tests
-
-Public CI does not run all live platform regressions, and it does not attempt real Douyin QR login.
-
-Recommended testing split:
-
-- public CI: compile checks, unit tests, lightweight public-link regression, and mocked Douyin auth gating
-- self-hosted runner / desktop smoke test: real Douyin QR login, cookie reuse, and Playwright fallback verification
-
-## Limitations
-
-- The slowest path is media transcription; some runs can take minutes
-- Some platforms need cookies, browser sessions, or referers to be reliable
-- Very short or mostly-music videos may only produce `metadata-only partial`
-- Anti-bot behavior can change over time, especially on social platforms
-
-## Contributing
-
-See [CONTRIBUTING.md](./CONTRIBUTING.md).
+- Obsidian is the primary output target
+- desktop output remains only as a compatibility path
+- Feishu / Feishu Wiki upload is not supported
+- when `--analysis-mode llm` is required and the LLM is unavailable, the run can fail fast instead of silently pretending everything is fine
 
 ## License
 

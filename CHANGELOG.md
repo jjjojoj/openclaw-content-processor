@@ -36,6 +36,7 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - Douyin Playwright fallback now prefers the detail API's clean `desc` / `author.nickname` metadata over noisy page text, so bare-video URLs can still produce usable titles and authors
 - Non-GitHub knowledge-card titles now keep longer LLM-generated notebook titles instead of truncating them too early, and structured bullet rendering preserves markdown labels such as `**产品定位**`
 - README and `.env.example` now clarify that Feishu is unsupported and that `auto` output switches to Obsidian as soon as a vault path is configured
+- The public GitHub docs now position the project as an AI + Obsidian knowledge pipeline, with refreshed bilingual READMEs, current `main`-branch validation notes, and an Obsidian graph-style preview image
 
 ## [2.4.0] - 2026-04-19
 
