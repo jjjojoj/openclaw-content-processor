@@ -400,6 +400,16 @@ class ContentProcessorTests(unittest.TestCase):
         )
         self.assertEqual(title, "这是一个很清晰的标题。")
 
+    def test_split_structured_list_preserves_decimal_versions(self) -> None:
+        values = MODULE.split_structured_list(
+            "1) 支持 GLM-4.7；2) 可接入 Claude 4.5 Opus；3) 提供 MCP 配置"
+        )
+        self.assertEqual(values, [
+            "支持 GLM-4.7",
+            "可接入 Claude 4.5 Opus",
+            "提供 MCP 配置",
+        ])
+
     def test_split_sentences_limits_analysis_budget(self) -> None:
         text = "\n".join(f"这是第{i}段用于测试分析预算的长句子，应该被正常切分。" for i in range(260))
         sentences = MODULE.split_sentences(text)
@@ -648,6 +658,41 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertEqual(item["source_metadata"]["canonical_url"], "https://www.douyin.com/video/demo")
         self.assertEqual(item["source_metadata"]["resolved_media_source"], "playwright-network")
         self.assertIn("这是转写正文", item["content"])
+
+    def test_build_item_cleans_noisy_douyin_metadata_title(self) -> None:
+        noisy_title = (
+            "OpenCode详细攻略，开源版Claude Code ，免费模型与神级插件。"
+            "OpenCode 是近期热度最高的AI编程工具。 #AI #编程"
+        )
+        with (
+            mock.patch.object(
+                MODULE,
+                "load_yt_metadata",
+                return_value=({
+                    "title": noisy_title,
+                    "uploader": noisy_title,
+                }, []),
+            ),
+            mock.patch.object(
+                MODULE,
+                "fetch_yt_subtitles",
+                return_value=(
+                    "OpenCode 是近期热度最高的 AI 编程工具。\n它支持免费模型与插件扩展。",
+                    "yt-dlp subtitles",
+                    [],
+                ),
+            ),
+        ):
+            item = MODULE.build_item(
+                "https://v.douyin.com/demo/",
+                max_content_chars=1000,
+                request_options=MODULE.RequestOptions(),
+            )
+
+        self.assertEqual(item["status"], "success")
+        self.assertEqual(item["extract_method"], "yt-dlp subtitles")
+        self.assertEqual(item["title"], "OpenCode 是近期热度最高的 AI 编程工具。")
+        self.assertEqual(item["author"], "")
 
     def test_build_item_retries_douyin_login_before_playwright_fallback(self) -> None:
         with (
@@ -904,7 +949,8 @@ class ContentProcessorTests(unittest.TestCase):
         self.assertEqual(len(paths), 1)
         self.assertIn('type: "knowledge-card"', content)
         self.assertIn("## 适用场景", content)
-        self.assertIn("## 方法 / 判断要点", content)
+        self.assertIn("## 值得记住的要点", content)
+        self.assertIn("## 可以立刻试什么", content)
         self.assertIn("<details>", content)
 
     def test_render_knowledge_card_note_for_github_includes_branch_links(self) -> None:
@@ -1009,6 +1055,36 @@ class ContentProcessorTests(unittest.TestCase):
 
         self.assertIn("## 抓取证据", content)
         self.assertIn("展开查看抓取证据", content)
+
+    def test_parse_analysis_sections_extracts_richer_non_github_fields(self) -> None:
+        sections = MODULE.parse_analysis_sections(
+            "\n".join([
+                "卡片标题：OpenCode 全攻略",
+                "核心价值：这是一条高密度教程。",
+                "适用场景：适合 AI 编程工具选型。",
+                "内容要点：",
+                "1) 支持四种运行形态",
+                "2) 支持免费模型",
+                "3) 支持 Session 并发",
+                "可直接实践：",
+                "1) 先装 Node.js",
+                "2) 再执行 npm 安装",
+                "3) 最后接入模型",
+                "相关概念：",
+                "OpenCode",
+                "OpenRouter",
+                "Context7",
+                "注意事项：",
+                "先核对模型额度和插件兼容性。",
+            ])
+        )
+        self.assertEqual(sections["card_title"], "OpenCode 全攻略")
+        self.assertIn("高密度教程", sections["core_value"])
+        self.assertIn("AI 编程工具选型", sections["scenarios"])
+        self.assertIn("支持四种运行形态", sections["learning_points"])
+        self.assertIn("先装 Node.js", sections["methods"])
+        self.assertIn("OpenCode", sections["key_paths"])
+        self.assertIn("模型额度", sections["concerns"])
 
     def test_update_obsidian_github_mocs_creates_root_and_category_notes(self) -> None:
         generated_at = MODULE.datetime(2026, 4, 21, 12, 12)

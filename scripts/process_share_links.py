@@ -766,12 +766,13 @@ def split_structured_list(text: str) -> list[str]:
     if not candidate:
         return []
 
-    numbered = re.sub(r"\s*(\d+)[\.\)、)]\s*", "\n", candidate)
+    numbered = re.sub(r"(?<=\S)\s+(?=\d+[\.\)、)]\s+)", "\n", candidate)
     pieces = re.split(r"(?:\n+|\s*[;；|｜]\s*|\s*•\s*|\s*●\s*)", numbered)
     values: list[str] = []
     seen: set[str] = set()
     for piece in pieces:
-        cleaned = re.sub(r"^[>\-*\s,，、]+", "", piece).strip()
+        cleaned = re.sub(r"^\d+[\.\)、)]\s*", "", piece).strip()
+        cleaned = re.sub(r"^[>•●\-*\s,，、]+", "", cleaned).strip()
         cleaned = cleaned.rstrip("。；;，,")
         if not cleaned:
             continue
@@ -782,6 +783,34 @@ def split_structured_list(text: str) -> list[str]:
 
 
 def parse_analysis_sections(text: str) -> dict[str, str]:
+    label_map = {
+        "卡片标题": "card_title",
+        "核心价值": "core_value",
+        "一句话定位": "core_value",
+        "项目定位": "core_value",
+        "项目总览": "core_value",
+        "适用场景": "scenarios",
+        "适合阶段": "scenarios",
+        "解决的问题": "scenarios",
+        "你会学到": "learning_points",
+        "架构拆解": "learning_points",
+        "系统分层": "learning_points",
+        "内容要点": "learning_points",
+        "运行入口": "runtime_modes",
+        "运行模式": "runtime_modes",
+        "关键目录/文件": "key_paths",
+        "相关概念": "key_paths",
+        "相关项目": "key_paths",
+        "方法要点": "methods",
+        "推荐学习路径": "methods",
+        "建议怎么上手": "methods",
+        "建议阅读顺序": "methods",
+        "可直接实践": "methods",
+        "分类": "categories",
+        "关注点": "concerns",
+        "学习提醒": "concerns",
+        "注意事项": "concerns",
+    }
     sections = {
         "card_title": "",
         "core_value": "",
@@ -793,28 +822,30 @@ def parse_analysis_sections(text: str) -> dict[str, str]:
         "categories": "",
         "concerns": "",
     }
+    current_key = ""
     for line in str(text or "").splitlines():
         cleaned = line.strip()
         if not cleaned:
             continue
-        if cleaned.startswith("卡片标题："):
-            sections["card_title"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("核心价值：") or cleaned.startswith("一句话定位：") or cleaned.startswith("项目定位：") or cleaned.startswith("项目总览："):
-            sections["core_value"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("适用场景：") or cleaned.startswith("适合阶段：") or cleaned.startswith("解决的问题："):
-            sections["scenarios"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("你会学到：") or cleaned.startswith("架构拆解：") or cleaned.startswith("系统分层："):
-            sections["learning_points"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("运行入口：") or cleaned.startswith("运行模式："):
-            sections["runtime_modes"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("关键目录/文件："):
-            sections["key_paths"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("方法要点：") or cleaned.startswith("推荐学习路径：") or cleaned.startswith("建议怎么上手：") or cleaned.startswith("建议阅读顺序："):
-            sections["methods"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("分类："):
-            sections["categories"] = normalize_space(cleaned.split("：", 1)[1])
-        elif cleaned.startswith("关注点：") or cleaned.startswith("学习提醒："):
-            sections["concerns"] = normalize_space(cleaned.split("：", 1)[1])
+        matched_key = ""
+        matched_value = ""
+        for label, section_key in label_map.items():
+            prefix = f"{label}："
+            if cleaned.startswith(prefix):
+                matched_key = section_key
+                matched_value = normalize_space(cleaned[len(prefix):])
+                break
+        if matched_key:
+            current_key = matched_key
+            if matched_value:
+                sections[matched_key] = normalize_space(
+                    "\n".join(part for part in [sections[matched_key], matched_value] if part)
+                )
+            continue
+        if current_key:
+            sections[current_key] = normalize_space(
+                "\n".join(part for part in [sections[current_key], cleaned] if part)
+            )
     return sections
 
 
@@ -836,8 +867,64 @@ def derive_knowledge_card_title(item: dict[str, object]) -> str:
         candidate = re.sub(r"^[>•\-*\d\.\s]+", "", candidate).strip()
         candidate = candidate.rstrip("。！？!?,，；;：:")
         if candidate:
-            return shorten(candidate, 28)
+            return shorten(candidate, 40)
     return "未命名知识卡片"
+
+
+def title_needs_cleanup(title: str, platform_key: str = "") -> bool:
+    normalized = normalize_space(title)
+    if not normalized:
+        return True
+    if should_prefer_context_title(normalized, platform_key):
+        return True
+    if "#" in normalized or "http://" in normalized.lower() or "https://" in normalized.lower():
+        return True
+    if len(normalized) > 72:
+        return True
+    sentence_markers = normalized.count("。") + normalized.count("！") + normalized.count("？")
+    if sentence_markers >= 2:
+        return True
+    if normalized.count("，") >= 4:
+        return True
+    return False
+
+
+def sanitize_author_label(author: str, title: str = "") -> str:
+    normalized = normalize_space(author)
+    if not normalized:
+        return ""
+    if title and normalized == normalize_space(title):
+        return ""
+    if len(normalized) > 40:
+        return ""
+    if "#" in normalized or "http://" in normalized.lower() or "https://" in normalized.lower():
+        return ""
+    return normalized
+
+
+def derive_learning_card_title(item: dict[str, object]) -> str:
+    platform_key = str(item.get("platform_key") or "")
+    title = normalize_space(str(item.get("title") or ""))
+    if title and not title_needs_cleanup(title, platform_key):
+        return shorten(title.rstrip("。！？!?,，；;：:"), 40)
+
+    sections = parse_analysis_sections(str(item.get("analysis") or ""))
+    for candidate in [
+        sections["card_title"],
+        str(item.get("summary") or "").strip(),
+        *(str(value).strip() for value in list(item.get("highlights") or [])[:2]),
+    ]:
+        if not candidate:
+            continue
+        normalized = re.sub(r"^(?:核心价值|适用场景|内容要点)[:：]\s*", "", candidate).strip()
+        normalized = normalized.rstrip("。！？!?,，；;：:")
+        if normalized:
+            return shorten(normalized, 40)
+
+    content = str(item.get("content") or "")
+    if content:
+        return shorten(derive_title_from_content(content, "学习卡片"), 40)
+    return "学习卡片"
 
 
 def read_markdown_frontmatter_value(note_path: Path, key: str) -> str:
@@ -2139,7 +2226,7 @@ def extract_keywords(text: str, limit: int = 6) -> list[str]:
 
 
 def derive_title_from_content(content: str, fallback: str) -> str:
-    candidates = rank_sentences(content, max_sentences=1) or split_sentences(content)[:1]
+    candidates = split_sentences(content)[:1] or rank_sentences(content, max_sentences=1)
     if not candidates:
         return fallback
     candidate = candidates[0].strip().strip("“”\"'：:[]【】")
@@ -2570,12 +2657,27 @@ def build_local_item_analysis(item: dict[str, object]) -> str:
     scene = f"适用场景：适合快速了解这条{platform}内容的重点，再决定是否继续深入阅读原文。"
     if keywords:
         scene = f"适用场景：适合围绕 {', '.join(keywords[:4])} 这些关键词继续做延伸分析或归档。"
-    concern = "关注点：建议结合原文摘录核对关键结论，避免只看摘要做判断。"
-    return "\n".join([
+    points = highlights[:4] or rank_sentences(str(item.get("content") or ""), max_sentences=4)
+    point_text = "；".join(points[:4]) if points else "建议优先从原始内容里提炼最有价值的 3-4 个信息点。"
+    actions: list[str] = []
+    if keywords:
+        actions.append(f"先围绕 {', '.join(keywords[:3])} 这些关键词继续查原始资料或相关案例。")
+    if str(item.get("platform_key") or "") in {"douyin", "bilibili", "youtube", "x"}:
+        actions.append("优先回看原视频或转录里提到的工具名、命令和配置步骤，避免只记结论。")
+    actions.append("把最值得复用的方法、工具或清单单独摘出来，方便后续沉淀到长期知识库。")
+    related = "；".join(keywords[:6]) if keywords else ""
+    concern = "注意事项：建议结合原文摘录核对关键结论，避免只看摘要做判断。"
+    lines = [
+        f"卡片标题：{derive_learning_card_title(item)}",
         f"核心价值：{shorten(lead, 120)}",
         scene,
-        concern,
-    ])
+        f"内容要点：{point_text}",
+        f"可直接实践：{'；'.join(actions[:3])}",
+    ]
+    if related:
+        lines.append(f"相关概念：{related}")
+    lines.append(concern)
+    return "\n".join(lines)
 
 
 def finalize_github_item(item: dict[str, object]) -> dict[str, object]:
@@ -2856,10 +2958,22 @@ def build_item_analysis_prompt(item: dict[str, object]) -> str:
             f"正文片段：\n{content}",
         ])
     return "\n".join([
-        "你是一个内容分析助手。请用中文输出三行，每行都以固定标签开头：",
-        "核心价值：...",
-        "适用场景：...",
-        "关注点：...",
+        "你是一个中文内容研究助手。请把这条网页/视频/文章内容整理成一张信息密度高但不过载的学习卡片，每行一个固定标签：",
+        "卡片标题：一句能直接作为 Obsidian 笔记标题的短标题，尽量控制在 22 个汉字或同等长度以内",
+        "核心价值：用 1-2 句写清这条内容真正值得记住的结论",
+        "适用场景：这条内容适合谁、适合解决什么问题",
+        "内容要点：1) ...；2) ...；3) ...；4) ...",
+        "可直接实践：1) ...；2) ...；3) ...",
+        "相关概念：列 3-6 个工具、项目、术语或人名，没有可留空",
+        "注意事项：...",
+        "",
+        "要求：",
+        "1. 卡片标题要像人写的学习笔记标题，不要直接照抄很长的原始标题，也不要写成完整句。",
+        "2. 不要写空话，优先提炼视频里真正有操作性的做法、工具、配置和判断标准。",
+        "3. 如果是视频转录内容，优先把零散口播整理成结构化要点，而不是复述开场白和过渡句。",
+        "4. 内容要点尽量覆盖“是什么、怎么做、有什么亮点/限制、适合谁”。",
+        "5. 可直接实践必须写成用户看完就能去做的动作，不要泛泛而谈。",
+        "6. 相关概念优先列正文里反复出现的工具、项目名、协议名、模型名或平台名。",
         "",
         f"平台：{item.get('platform') or ''}",
         f"标题：{item.get('title') or ''}",
@@ -3188,7 +3302,13 @@ def build_item(
         item["title"] = fallback_title
         used_host_title_fallback = True
 
-    if content and used_host_title_fallback:
+    if content and (
+        used_host_title_fallback
+        or (
+            platform_key in {"youtube", "bilibili", "douyin", "xiaohongshu", "weibo", "x"}
+            and title_needs_cleanup(str(item.get("title") or ""), platform_key)
+        )
+    ):
         item["title"] = derive_title_from_content(content, str(item["title"]))
 
     item["warnings"] = warnings
@@ -3201,6 +3321,7 @@ def finalize_item(item: dict[str, object]) -> dict[str, object]:
     content = str(item.get("content") or "")
     warnings = list(item.get("warnings") or [])
     fallback_only = bool(item.get("fallback_only"))
+    item["author"] = sanitize_author_label(str(item.get("author") or ""), title=str(item.get("title") or ""))
     if content:
         if str(item.get("platform_key") or "") == "github":
             item = finalize_github_item(item)
@@ -3429,7 +3550,7 @@ def build_knowledge_card_frontmatter(
     source_metadata = item.get("source_metadata")
     metadata = source_metadata if isinstance(source_metadata, dict) else {}
     source = str(item.get("platform") or "内容")
-    author = str(item.get("author") or "").strip()
+    author = sanitize_author_label(str(item.get("author") or ""), title=str(item.get("title") or ""))
     if author and author != source:
         source = f"{source} @{author}"
     fields: dict[str, object] = {
@@ -3585,7 +3706,7 @@ def render_knowledge_card_note(
         f"> {shorten(lead, 180)}",
         "",
         f"- 来源：{item.get('platform') or '未知平台'}",
-        f"- {'仓库' if is_github else '标题'}：{repo_name if is_github else (item.get('title') or '-')}",
+        f"- {'仓库' if is_github else '标题'}：{repo_name if is_github else note_title}",
         f"- 原始链接：{item.get('source') or '-'}",
         f"- 状态：{item.get('status') or 'unknown'}",
         f"- 分析方式：{item.get('analysis_method') or '-'}",
@@ -3656,6 +3777,13 @@ def render_knowledge_card_note(
         for concern in concern_entries[:4]:
             lines.append(f"- {concern}")
     else:
+        learning_points = split_structured_list(sections["learning_points"])
+        related_entries = split_structured_list(sections["key_paths"])
+        action_points = split_structured_list(sections["methods"])
+        if not learning_points:
+            learning_points = highlights[:4] or split_sentences(str(item.get("summary") or ""))[:4]
+        if not action_points:
+            action_points = method_points[:4] if method_points else learning_points[:3]
         lines.extend([
             "## 适用场景",
             "",
@@ -3664,13 +3792,30 @@ def render_knowledge_card_note(
             lines.append(f"- {scenario}")
         lines.extend([
             "",
-            "## 方法 / 判断要点",
+            "## 值得记住的要点",
             "",
         ])
-        for point in method_points[:4]:
+        for point in learning_points[:5]:
             lines.append(f"- {point}")
-        if not method_points:
+        if not learning_points:
+            lines.append("- 建议先从内容里提炼 3-5 个最有用的观点、步骤或判断标准。")
+        lines.extend([
+            "",
+            "## 可以立刻试什么",
+            "",
+        ])
+        for point in action_points[:4]:
+            lines.append(f"- {point}")
+        if not action_points:
             lines.extend(["- 建议先阅读原始链接，再决定是否沉淀为长期知识。", ""])
+        if related_entries:
+            lines.extend([
+                "",
+                "## 相关概念 / 项目",
+                "",
+            ])
+            for entry in related_entries[:8]:
+                lines.append(f"- {entry}")
         lines.extend(["", "## 注意事项", ""])
         if warnings:
             for warning in warnings:

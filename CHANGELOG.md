@@ -29,6 +29,10 @@ The format is inspired by Keep a Changelog, and version tags follow the reposito
 - GitHub extractor now supplements repository metadata with DeepWiki overview context when available, and final knowledge cards prefer verified repo entrypoints / paths over raw LLM path guesses
 - Knowledge-card notes no longer dump full raw content for high-confidence web / GitHub captures; folded evidence is only shown for lower-confidence fallback cases or transcript-style media
 - Obsidian knowledge indexes now insert new cards under the correct date heading instead of appending entries into the wrong day block
+- Non-GitHub knowledge cards now correctly parse multiline LLM sections such as `内容要点` / `可直接实践` instead of silently dropping everything after the label line
+- Structured-list parsing now preserves decimal/version tokens like `GLM-4.7` and `Claude 4.5` instead of splitting them into broken bullets
+- Noisy short-video metadata titles are now normalized before note generation, and obviously invalid creator labels are no longer copied into Obsidian frontmatter
+- Non-GitHub prompts now request an explicit human-readable `卡片标题`, so media cards generate cleaner note titles instead of falling back to noisy source metadata
 - README and `.env.example` now clarify that Feishu is unsupported and that `auto` output switches to Obsidian as soon as a vault path is configured
 
 ## [2.4.0] - 2026-04-19
