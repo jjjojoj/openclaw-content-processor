@@ -252,6 +252,23 @@ Current stable tag: `v2.4.0`
 | Douyin | Usually works | Order is `saved auth -> QR login retry -> Playwright download fallback` |
 | YouTube | Supported | Public videos usually work without extra auth |
 
+## Optional TweetClaw source workflow
+
+The built-in X/Twitter path is best for links the user already shared. When you need to find public X/Twitter sources before writing Obsidian cards, pair this skill with [TweetClaw](https://github.com/Xquik-dev/tweetclaw):
+
+```bash
+openclaw plugins install @xquik/tweetclaw
+```
+
+Use TweetClaw to search tweets, search tweet replies, run user lookup, export followers, monitor tweets, and collect media links. Then pass the selected public tweet URLs or thread links to Content Processor so the final card stays grounded in reviewed sources.
+
+Keep the boundary clear:
+
+- Store the TweetClaw API key only in private OpenClaw config or a local environment.
+- Save public tweet URLs, tweet IDs, short summaries, and selection rationale in Obsidian.
+- Keep raw exports and unreviewed monitor output outside the vault until reviewed.
+- Treat post tweets and post tweet replies as draft actions that require human confirmation.
+
 ## Validation
 
 The repository homepage is intentionally more honest than marketing-heavy. The current documented state is:
