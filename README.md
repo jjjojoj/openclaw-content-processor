@@ -254,20 +254,30 @@ Current stable tag: `v2.4.0`
 
 ## Optional TweetClaw source workflow
 
-The built-in X/Twitter path is best for links the user already shared. When you need to find public X/Twitter sources before writing Obsidian cards, pair this skill with [TweetClaw](https://github.com/Xquik-dev/tweetclaw):
+The built-in X/Twitter path is best for links the user already shared. When you
+need to find public X/Twitter sources before writing Obsidian cards, pair this
+skill with [TweetClaw](https://github.com/Xquik-dev/tweetclaw):
 
 ```bash
 openclaw plugins install @xquik/tweetclaw
 ```
 
-Use TweetClaw to search tweets, search tweet replies, run user lookup, export followers, monitor tweets, and collect media links. Then pass the selected public tweet URLs or thread links to Content Processor so the final card stays grounded in reviewed sources.
+Use TweetClaw for read-only public discovery: search tweets, search tweet replies,
+run user lookup, and collect candidate public tweet URLs, thread links, or media
+links. Keep account-backed actions such as follower exports, monitors, webhooks,
+authenticated media downloads, and X write actions out of this default flow
+unless the user explicitly asks for them and reviews cost, privacy, and retention
+impact. Then pass the selected public tweet URLs or thread links to Content
+Processor so the final card stays grounded in reviewed sources.
 
 Keep the boundary clear:
 
 - Store the TweetClaw API key only in private OpenClaw config or a local environment.
 - Save public tweet URLs, tweet IDs, short summaries, and selection rationale in Obsidian.
 - Keep raw exports and unreviewed monitor output outside the vault until reviewed.
-- Treat post tweets and post tweet replies as draft actions that require human confirmation.
+- Treat every write-like or account-changing action as a separate explicit step
+  that requires human confirmation, including posts, replies, likes, retweets,
+  follows, DMs, profile changes, monitor setup, and webhook setup.
 
 ## Validation
 

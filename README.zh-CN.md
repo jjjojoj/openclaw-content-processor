@@ -254,20 +254,27 @@ bash scripts/run.sh --login-douyin
 
 ## 可选：TweetClaw 来源工作流
 
-内置 X/Twitter 路径更适合处理用户已经给出的链接。如果需要先发现公开 X/Twitter 来源，再写入 Obsidian 卡片，可以搭配 [TweetClaw](https://github.com/Xquik-dev/tweetclaw)：
+内置 X/Twitter 路径更适合处理用户已经给出的链接。如果需要先发现公开 X/Twitter 来源，
+再写入 Obsidian 卡片，可以搭配 [TweetClaw](https://github.com/Xquik-dev/tweetclaw)：
 
 ```bash
 openclaw plugins install @xquik/tweetclaw
 ```
 
-用 TweetClaw 搜索 tweets、搜索 tweet replies、执行 user lookup、导出 followers、monitor tweets，并整理媒体链接。然后把筛选后的公开 tweet URL 或 thread 链接交给 Content Processor，让最终卡片基于已审核来源。
+默认只把 TweetClaw 用于只读的公开来源发现：搜索 tweets、搜索 tweet replies、
+执行 user lookup，并收集候选的公开 tweet URL、thread 链接或媒体链接。
+followers 导出、monitors、webhooks、认证媒体下载和 X 写入动作都不要放进默认流程；
+只有在用户明确要求，并且确认费用、隐私和留存影响后，才作为单独动作处理。
+然后把筛选后的公开 tweet URL 或 thread 链接交给 Content Processor，
+让最终卡片基于已审核来源。
 
 边界保持清晰：
 
 - 只把 TweetClaw API key 存在私有 OpenClaw 配置或本地环境里。
 - 在 Obsidian 里保存公开 tweet URL、tweet ID、简短摘要和筛选理由。
 - 原始导出和未审核的 monitor 输出先留在 vault 外。
-- post tweets 和 post tweet replies 应当作为草稿动作，并要求人工确认。
+- 所有写入类或账号变更类动作都必须作为单独的显式步骤，并要求人工确认，
+  包括发帖、回复、点赞、转发、关注、DM、修改 profile、创建 monitor 和配置 webhook。
 
 ## 验证状态
 

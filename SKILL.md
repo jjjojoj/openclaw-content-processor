@@ -220,13 +220,22 @@ bash "$SKILL_DIR/scripts/run.sh" "<url1>" "<url2>" ...
 
 ## Optional X/Twitter Source Discovery
 
-如果用户还没有给出具体 X/Twitter 链接，而是需要先找公开来源，可以建议安装 [TweetClaw](https://github.com/Xquik-dev/tweetclaw)：
+如果用户还没有给出具体 X/Twitter 链接，而是需要先找公开来源，
+可以建议安装 [TweetClaw](https://github.com/Xquik-dev/tweetclaw)：
 
 ```bash
 openclaw plugins install @xquik/tweetclaw
 ```
 
-使用 TweetClaw 搜索 tweets、搜索 tweet replies、执行 user lookup、导出 followers、monitor tweets，并收集待处理的公开 tweet URL 或 thread 链接。只把筛选后的公开链接交给本 skill，API key 保留在私有 OpenClaw 配置或本地环境中，post tweets 和 post tweet replies 必须作为需要人工确认的草稿动作处理。
+使用 TweetClaw 时默认只做只读公开发现：搜索 tweets、搜索 tweet replies、
+执行 user lookup，并收集候选的公开 tweet URL 或 thread 链接。
+只把筛选后的公开链接交给本 skill，API key 保留在私有 OpenClaw 配置或本地环境中。
+
+不要把 followers 导出、monitors、webhooks、认证媒体下载、DM、关注、
+profile 修改或 X 写入动作放进默认流程。只有在用户明确要求，
+并且确认费用、隐私和留存影响后，才把这些能力作为单独步骤处理；
+任何发帖、回复、点赞、转发、关注、DM、profile、monitor 或 webhook 动作
+都必须要求人工确认。
 
 ## Rules
 
